@@ -55,11 +55,34 @@ class BotScheduler:
         """Barcha guruhlar uchun joblarni tuzadi va schedulerni ishga tushiradi."""
         await self.schedule_all_groups()
 
-        # Kunlik xulosa — barcha guruhlar uchun umumiy, 22:00 da adminga
+        tz = self.settings.tz
+
+        # 18:30 — 1-eslatma (hali hisobot yubormaganlarga, muloyim)
+        self.scheduler.add_job(
+            self._send_reminders_soft,
+            CronTrigger(hour=18, minute=30, timezone=tz),
+            id="reminder_soft",
+            replace_existing=True,
+        )
+        # 20:00 — 2-eslatma + adminга eskalatsiya
+        self.scheduler.add_job(
+            self._send_reminders_firm,
+            CronTrigger(hour=20, minute=0, timezone=tz),
+            id="reminder_firm",
+            replace_existing=True,
+        )
+        # 22:00 — kunlik xulosa adminga
         self.scheduler.add_job(
             self._send_daily_summary,
-            CronTrigger(hour=22, minute=0, timezone=self.settings.tz),
+            CronTrigger(hour=22, minute=0, timezone=tz),
             id="daily_summary",
+            replace_existing=True,
+        )
+        # Shanba 20:00 — haftalik tahlil adminga
+        self.scheduler.add_job(
+            self._send_weekly,
+            CronTrigger(day_of_week="sat", hour=20, minute=0, timezone=tz),
+            id="weekly",
             replace_existing=True,
         )
 
@@ -154,6 +177,45 @@ class BotScheduler:
         except Exception:
             logger.error("Hisobot so'rovi xatosi (guruh %d)", group_id, exc_info=True)
 
+    async def _send_reminders_soft(self) -> None:
+        """18:30 — hali hisobot yubormagan guruhlarga muloyim eslatma."""
+        try:
+            date = reporter.today_str(self.settings.tz)
+            missing = await reporter.missing_groups_today(self.settings.tz)
+            for g in missing:
+                try:
+                    await self.bot.send_message(g["chat_id"], texts.REMINDER_SOFT)
+                    await db.add_log(int(g["id"]), date, "reminder_soft", self.settings.tz)
+                except Exception:
+                    logger.error("1-eslatma xatosi (guruh %s)", g.get("id"), exc_info=True)
+            logger.info("1-eslatma yuborildi: %d guruh", len(missing))
+        except Exception:
+            logger.error("1-eslatma umumiy xatosi", exc_info=True)
+
+    async def _send_reminders_firm(self) -> None:
+        """20:00 — takroriy eslatma guruhlarga + adminга eskalatsiya."""
+        try:
+            date = reporter.today_str(self.settings.tz)
+            missing = await reporter.missing_groups_today(self.settings.tz)
+
+            for g in missing:
+                try:
+                    await self.bot.send_message(g["chat_id"], texts.REMINDER_FIRM)
+                    await db.add_log(int(g["id"]), date, "reminder_firm", self.settings.tz)
+                except Exception:
+                    logger.error("2-eslatma xatosi (guruh %s)", g.get("id"), exc_info=True)
+
+            # Adminга javob bermaganlar ro'yxati
+            names = [g.get("name") or f"Guruh {g['id']}" for g in missing]
+            if names:
+                await self.bot.send_message(
+                    self.settings.admin_id, texts.admin_escalation(names)
+                )
+            await db.add_log(None, date, "escalation", self.settings.tz)
+            logger.info("2-eslatma + eskalatsiya: %d guruh", len(missing))
+        except Exception:
+            logger.error("2-eslatma/eskalatsiya xatosi", exc_info=True)
+
     async def _send_daily_summary(self) -> None:
         """22:00 — kunlik xulosani adminga yuboradi."""
         try:
@@ -164,3 +226,14 @@ class BotScheduler:
             logger.info("Kunlik xulosa adminga yuborildi")
         except Exception:
             logger.error("Kunlik xulosa xatosi", exc_info=True)
+
+    async def _send_weekly(self) -> None:
+        """Shanba 20:00 — haftalik tahlilni adminga yuboradi."""
+        try:
+            text = await reporter.build_weekly_analysis(self.settings.tz)
+            await self.bot.send_message(self.settings.admin_id, text)
+            date = reporter.today_str(self.settings.tz)
+            await db.add_log(None, date, "weekly", self.settings.tz)
+            logger.info("Haftalik tahlil adminga yuborildi")
+        except Exception:
+            logger.error("Haftalik tahlil xatosi", exc_info=True)

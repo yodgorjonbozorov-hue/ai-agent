@@ -3,8 +3,8 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** 2-bosqich yakunlandi. Eslatma/eskalatsiya, to'liq interaktiv
-> admin komandalari va haftalik tahlil keyingi bosqichlarда qo'shiladi.
+> **Holat:** 3-bosqich yakunlandi. systemd unit, VPS yo'riqnomasi va debug
+> komandalar 4-bosqichда qo'shiladi.
 
 ## Texnologiyalar
 
@@ -61,6 +61,22 @@ va adminga xulosa beradigan Telegram bot.
 - **Barqarorlik:** AI kritik yo'l EMAS — timeout, rate limit yoki JSON parse
   xatosida hisobot `pending` holatida saqlanadi va bot ishlashda davom etadi.
 
+**3-bosqich (eslatma, admin komandalari, haftalik tahlil)**
+- **18:30 — 1-eslatma:** faqat hali hisobot yubormagan guruhlarga, muloyim.
+- **20:00 — 2-eslatma + eskalatsiya:** guruhlarga takroriy eslatma, adminга
+  "javob bermaganlar" ro'yxati.
+- **Shanba 20:00 — haftalik tahlil:** har guruhning hisobot berish foizi,
+  o'rtacha AI bahosi, takrorlanuvchi muammolar va intizom reytingi (🥇🥈🥉).
+- **To'liq admin komandalari:**
+  - `/vazifa` — interaktiv: guruh tanlash (inline keyboard) → vazifa matni (FSM)
+  - `/vaqt` — interaktiv: guruh → maydon (so'rov/ertalab) → yangi vaqt; job
+    avtomatik qayta rejalashtiriladi
+  - `/pauza <id>` / `/faol <id>` — guruhni to'xtatish / qayta yoqish (joblar
+    bilan birga)
+  - `/matn <id>` — guruhning bugungi to'liq hisobot matni
+  - `/haftalik` — haftalik reytingni darhol ko'rish
+  - `/bekor` — interaktiv jarayonni bekor qilish
+
 ## O'rnatish (lokal test)
 
 ```bash
@@ -95,8 +111,5 @@ Bot ishga tushgach:
 
 ## Keyingi bosqichlar
 
-- **3-bosqich:** 18:30 va 20:00 eslatma/eskalatsiya, to'liq interaktiv admin
-  komandalari (`/vazifa`, `/vaqt`, `/pauza`, `/faol`, `/matn`, `/haftalik`),
-  haftalik tahlil.
 - **4-bosqich:** `disney-bot.service` (systemd), VPS o'rnatish yo'riqnomasi,
-  debug komandalar.
+  qo'lda test uchun debug komandalar.

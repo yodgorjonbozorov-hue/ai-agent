@@ -17,6 +17,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 
 import database as db
 from config import load_settings, setup_logging
@@ -37,9 +38,9 @@ async def main() -> None:
     # Baza
     await db.init_db(settings.db_path)
 
-    # Bot va Dispatcher
+    # Bot va Dispatcher (interaktiv komandalar uchun FSM xotirasi bilan)
     bot = Bot(token=settings.bot_token)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
 
     # Scheduler va AI tekshiruvchi
     scheduler = BotScheduler(bot=bot, settings=settings)

@@ -326,6 +326,23 @@ async def get_reports_for_date(date: str) -> dict[int, dict[str, Any]]:
         return result
 
 
+async def get_reports_range(start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """
+    [start_date, end_date] oralig'idagi barcha hisobotlarni qaytaradi
+    (haftalik tahlil uchun). Kunlik 'oxirgisi asosiy' dedublyatsiyasi
+    chaqiruvchi tomonda qilinadi.
+    """
+    async with aiosqlite.connect(_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM reports WHERE date >= ? AND date <= ? "
+            "ORDER BY created_at",
+            (start_date, end_date),
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
 # --------------------------------------------------------------------------
 # logs — eslatma/eskalatsiya tarixi
 # --------------------------------------------------------------------------
@@ -354,3 +371,21 @@ async def has_log(group_id: Optional[int], date: str, log_type: str) -> bool:
         )
         row = await cur.fetchone()
         return row is not None
+
+
+async def get_log_dates_range(
+    start_date: str, end_date: str, log_type: str
+) -> list[tuple[int, str]]:
+    """
+    Oraliqда berilgan turdagi loglarning (group_id, date) juftliklarini
+    qaytaradi. Haftalik tahlilда 'so'rov yuborilgan kunlar' sonini
+    hisoblash uchun ishlatiladi.
+    """
+    async with aiosqlite.connect(_DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT DISTINCT group_id, date FROM logs "
+            "WHERE date >= ? AND date <= ? AND type = ? AND group_id IS NOT NULL",
+            (start_date, end_date, log_type),
+        )
+        rows = await cur.fetchall()
+        return [(int(r[0]), r[1]) for r in rows]

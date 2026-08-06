@@ -156,3 +156,97 @@ def group_list_line(g: dict[str, Any], has_report: bool) -> str:
         f"{status} [{g['id']}] {g.get('name') or 'nomsiz'} — {report_mark}\n"
         f"    ⏰ ertalab {g['morning_time']} / so'rov {g['request_time']}"
     )
+
+
+# --------------------------------------------------------------------------
+# Interaktiv admin komandalari (/vazifa, /vaqt, /pauza, /faol, /matn)
+# --------------------------------------------------------------------------
+
+CHOOSE_GROUP = "Guruhni tanlang:"
+NO_GROUPS = "Hozircha birorta guruh ro'yxatда yo'q."
+CANCELLED = "Bekor qilindi."
+
+VAZIFA_ENTER = "✍️ Endi vazifa matnini yuboring (bir nechta bo'lsa har birini alohida qatorda):"
+
+
+def vazifa_added(group_name: str, count: int) -> str:
+    return f"✅ {group_name} guruhiga bugunga {count} ta vazifa qo'shildi."
+
+
+VAQT_CHOOSE_FIELD = "Qaysi vaqtni o'zgartiramiz?"
+VAQT_FIELD_REQUEST = "📋 Hisobot so'rovi vaqti"
+VAQT_FIELD_MORNING = "☀️ Ertalabki xabar vaqti"
+VAQT_ENTER = "🕐 Yangi vaqtni HH:MM formatida yuboring (masalan 18:00):"
+VAQT_INVALID = "❌ Noto'g'ri format. HH:MM ko'rinishida yuboring (masalan 09:30)."
+
+
+def vaqt_updated(group_name: str, field_label: str, value: str) -> str:
+    return f"✅ {group_name}: {field_label} → {value} ga o'zgartirildi."
+
+
+GROUP_NOT_FOUND = "❌ Bunday ID li guruh topilmadi."
+USAGE_PAUZA = "Foydalanish: /pauza <guruh_id>"
+USAGE_FAOL = "Foydalanish: /faol <guruh_id>"
+USAGE_MATN = "Foydalanish: /matn <guruh_id>"
+
+
+def group_paused(name: str) -> str:
+    return f"⏸ {name} guruhi vaqtincha to'xtatildi."
+
+
+def group_activated(name: str) -> str:
+    return f"🟢 {name} guruhi qayta faollashtirildi."
+
+
+def report_text_view(name: str, report: Optional[dict[str, Any]]) -> str:
+    """/matn — guruhning bugungi to'liq hisobot matni."""
+    if not report:
+        return f"📄 {name}: bugun hisobot yo'q."
+    status_map = {
+        "accepted": "✅ qabul qilingan",
+        "incomplete": "⚠️ to'liq emas",
+        "pending": "⏳ tekshirilmagan",
+    }
+    status = status_map.get(report.get("status", ""), report.get("status", ""))
+    score = report.get("ai_score")
+    score_line = f"\nBaho: {score}/5" if score else ""
+    author = report.get("user_name") or "Noma'lum"
+    return (
+        f"📄 {name} — bugungi hisobot\n"
+        f"Yuborgan: {author}\n"
+        f"Holat: {status}{score_line}\n"
+        f"{'─' * 20}\n"
+        f"{report.get('raw_text', '')}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Haftalik tahlil
+# --------------------------------------------------------------------------
+
+def admin_weekly(period: str, lines: list[str], problems: list[str]) -> str:
+    """Haftalik tahlil matni (intizom reytingi bilan)."""
+    body = "\n\n".join(lines) if lines else "Ma'lumot yo'q."
+    text = (
+        f"📈 Haftalik tahlil ({period})\n\n"
+        f"🏆 Intizom reytingi:\n\n{body}"
+    )
+    if problems:
+        prob = "\n".join(f"• {p}" for p in problems)
+        text += f"\n\n🔁 Takrorlanuvchi muammolar:\n{prob}"
+    return text
+
+
+def weekly_group_line(
+    rank: int,
+    name: str,
+    percent: int,
+    avg_score: Optional[float],
+) -> str:
+    """Haftalik reytingdagi bitta guruh qatori."""
+    medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"{rank}.")
+    avg_txt = f"{avg_score:.1f}/5" if avg_score is not None else "—"
+    return (
+        f"{medal} {name}\n"
+        f"    Hisobot berish: {percent}% | O'rtacha baho: {avg_txt}"
+    )
