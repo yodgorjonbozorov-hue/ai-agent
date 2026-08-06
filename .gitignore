@@ -1,0 +1,23 @@
+# Sirlar va ma'lumotlar bazasi hech qachon repozitoriyaga tushmasin
+.env
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Log fayllar
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/

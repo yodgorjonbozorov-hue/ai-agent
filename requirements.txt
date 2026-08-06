@@ -1,0 +1,8 @@
+# Disney Navoiy Hisobot Bot — bog'liqliklar
+
+aiogram==3.13.1          # asinxron Telegram bot freymvorki
+APScheduler==3.10.4      # kunlik jadval vazifalari uchun
+aiosqlite==0.20.0        # SQLite bilan asinxron ishlash
+python-dotenv==1.0.1     # .env fayldan sozlamalarni o'qish
+anthropic==0.39.0        # Claude AI API (2-bosqichda ishlatiladi)
+tzdata==2024.2           # zoneinfo uchun vaqt mintaqasi ma'lumotlari
