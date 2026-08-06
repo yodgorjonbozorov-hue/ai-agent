@@ -122,10 +122,32 @@ Bot ishga tushgach:
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
-## VPS'га o'rnatish (systemd)
+## VPS'га o'rnatish — eng oson yo'l (bitta buyruq)
 
-Ubuntu/Debian VPS uchun to'liq yo'riqnoma. Bot 24/7 ishlaydi va nosozlikда
-avtomatik qayta ishga tushadi.
+Ubuntu/Debian VPS'да, root sifatida:
+
+```bash
+git clone -b claude/disney-report-bot-04gmgw <repo-url> disney-report-bot
+cd disney-report-bot
+sudo bash install.sh
+```
+
+`install.sh` hamma narsани avtomatik qiladi: paketlar, foydalanuvchi, venv,
+bog'liqliklar, systemd xizmati. Faqat `BOT_TOKEN` va `ANTHROPIC_API_KEY` ни
+so'raydi (`ADMIN_ID` standart `5284718368`).
+
+Tugagach:
+```bash
+systemctl status disney-bot        # holat
+journalctl -u disney-bot -f        # jonli log
+```
+
+---
+
+## VPS'га o'rnatish — qo'lда (batafsil)
+
+Agar avtomatik skript o'rniga qadamlарни qo'lда bajarmoqchi bo'lsangiz.
+Bot 24/7 ishlaydi va nosozlikда avtomatik qayta ishga tushadi.
 
 **1. Tizim tayyorligi va foydalanuvchi**
 
