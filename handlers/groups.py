@@ -26,6 +26,7 @@ import database as db
 import texts
 from config import Settings
 from services import reporter
+from services.ai_checker import AiChecker
 from services.scheduler import BotScheduler
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,9 @@ async def on_bot_added(
 @router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text)
 async def on_group_message(
     message: Message,
+    bot: Bot,
     settings: Settings,
+    ai_checker: AiChecker,
 ) -> None:
     """Guruhdagi matnli xabarni hisobot sifatida ko'rib chiqadi."""
     try:
@@ -110,7 +113,8 @@ async def on_group_message(
         user_id = user.id if user else 0
         user_name = (user.full_name if user else "") or "Noma'lum"
 
-        await db.add_report(
+        # Hisobotni avval 'pending' holatida saqlaymiz (AI ishlamasa ham yo'qolmaydi)
+        report_id = await db.add_report(
             group_id=group_id,
             user_id=user_id,
             user_name=user_name,
@@ -119,8 +123,46 @@ async def on_group_message(
             status="pending",
             tz=settings.tz,
         )
-        # 1-bosqich: oddiy tasdiq (AI 2-bosqichda javob mantiqini boshqaradi)
-        await message.reply(texts.REPORT_RECEIVED_PLAIN)
         logger.info("Hisobot saqlandi: guruh %d, foydalanuvchi %s", group_id, user_name)
+
+        # AI tekshiruvi (agar yoqilgan bo'lsa)
+        tasks = await db.get_tasks(group_id, date)
+        result = await ai_checker.check_report(text, [t["text"] for t in tasks])
+
+        if result is None:
+            # AI ishlamadi — pending qoladi, oddiy tasdiq beramiz
+            await message.reply(texts.REPORT_RECEIVED_PLAIN)
+            return
+
+        # AI natijasiga qarab hisobotni yangilaymiz
+        status = "accepted" if result["toliq"] else "incomplete"
+        await db.update_report_ai(
+            report_id=report_id,
+            status=status,
+            ai_score=result["baho"],
+            ai_summary=result["qisqa_xulosa"],
+            missing_parts=result["yetishmagan"],
+            has_problem=result["muammo_bormi"],
+            problem_text=result["muammo_qisqacha"],
+        )
+
+        # Guruhga javob
+        if result["toliq"]:
+            await message.reply(texts.REPORT_ACCEPTED)
+        else:
+            await message.reply(texts.report_incomplete(result["yetishmagan"]))
+
+        # Muammo bo'lsa — adminга darhol alohida xabar
+        if result["muammo_bormi"]:
+            try:
+                await bot.send_message(
+                    settings.admin_id,
+                    texts.admin_problem_alert(
+                        group.get("name") or f"Guruh {group_id}",
+                        result["muammo_qisqacha"] or "muammo qayd etildi",
+                    ),
+                )
+            except Exception:
+                logger.error("Adminга muammo xabarini yuborishda xato", exc_info=True)
     except Exception:
         logger.error("Guruh xabarini qayta ishlashda xato", exc_info=True)

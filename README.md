@@ -3,8 +3,8 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** 1-bosqich yakunlandi. AI tekshiruv, eslatma/eskalatsiya,
-> to'liq admin komandalari va haftalik tahlil keyingi bosqichlarда qo'shiladi.
+> **Holat:** 2-bosqich yakunlandi. Eslatma/eskalatsiya, to'liq interaktiv
+> admin komandalari va haftalik tahlil keyingi bosqichlarда qo'shiladi.
 
 ## Texnologiyalar
 
@@ -34,8 +34,9 @@ va adminga xulosa beradigan Telegram bot.
 └── disney-bot.service     # (4-bosqichда)
 ```
 
-## 1-bosqichда nima ishlaydi
+## Hozircha nima ishlaydi
 
+**1-bosqich**
 - **Ro'yxatga olish:** bot guruhga qo'shilganda avtomatik bazaga yoziladi va
   admin xabardor qilinadi (`my_chat_member`).
 - **09:00 — ertalabki xabar:** bugungi vazifalar guruhga yuboriladi
@@ -44,9 +45,21 @@ va adminga xulosa beradigan Telegram bot.
 - **Hisobot qabul qilish:** so'rovdan keyin kelgan, 50 belgidan uzun matn
   hisobot sifatida bazaga `pending` holatida yoziladi. Qisqa xabarlar
   (`ok`, `rahmat`) e'tiborsiz qoladi.
-- **22:00 — kunlik xulosa:** adminga kim hisobot berdi / bermadi ko'rinishida
-  (hozircha AI'siz).
+- **22:00 — kunlik xulosa:** adminga kim hisobot berdi / bermadi ko'rinishida.
 - **Admin komandalari:** `/start`, `/guruhlar`, `/hisobot`, `/test_xulosa`.
+
+**2-bosqich (AI tekshiruv)**
+- **`ai_checker.py`:** har bir hisobot `claude-sonnet-4-6` modeliga yuboriladi;
+  model faqat JSON qaytaradi (`toliq`, `yetishmagan`, `muammo_bormi`,
+  `muammo_qisqacha`, `baho` 1–5, `qisqa_xulosa`).
+- **Qayta so'rash:** to'liq bo'lmasa guruhga "…{yetishmagan} qismi yo'q —
+  to'ldirib yuborasizmi?" deyiladi, status `incomplete`.
+- **Qabul:** to'liq bo'lsa "✅ Hisobot qabul qilindi", status `accepted`.
+- **Muammo signali:** `muammo_bormi: true` bo'lsa adminга darhol alohida xabar.
+- **Xulosa boyitildi:** 22:00 xulosaga AI qisqa xulosasi va e'tibor talab
+  qiladigan bandlar qo'shildi.
+- **Barqarorlik:** AI kritik yo'l EMAS — timeout, rate limit yoki JSON parse
+  xatosida hisobot `pending` holatida saqlanadi va bot ishlashda davom etadi.
 
 ## O'rnatish (lokal test)
 
@@ -57,7 +70,8 @@ pip install -r requirements.txt
 
 # 2. Sozlamalar
 cp .env.example .env
-#   .env ni to'ldiring: BOT_TOKEN, ADMIN_ID (ANTHROPIC_API_KEY 2-bosqichda kerak)
+#   .env ni to'ldiring: BOT_TOKEN, ADMIN_ID, ANTHROPIC_API_KEY
+#   (ANTHROPIC_API_KEY bo'sh bo'lsa AI tekshiruv o'chadi, bot baribir ishlaydi)
 
 # 3. Ishga tushirish
 python bot.py
@@ -73,7 +87,7 @@ Bot ishga tushgach:
 | O'zgaruvchi | Izoh |
 |---|---|
 | `BOT_TOKEN` | BotFather'dan olingan token |
-| `ANTHROPIC_API_KEY` | Claude API kaliti (2-bosqich) |
+| `ANTHROPIC_API_KEY` | Claude API kaliti (bo'sh bo'lsa AI o'chadi) |
 | `ADMIN_ID` | Admin Telegram ID (butun son) |
 | `DB_PATH` | Baza fayli, standart `data/bot.db` |
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
@@ -81,9 +95,8 @@ Bot ishga tushgach:
 
 ## Keyingi bosqichlar
 
-- **2-bosqich:** `ai_checker.py` — Claude orqali hisobotni baholash, to'ldirishni
-  so'rash, muammolarni darhol adminга yuborish.
-- **3-bosqich:** 18:30 va 20:00 eslatma/eskalatsiya, to'liq admin komandalari,
+- **3-bosqich:** 18:30 va 20:00 eslatma/eskalatsiya, to'liq interaktiv admin
+  komandalari (`/vazifa`, `/vaqt`, `/pauza`, `/faol`, `/matn`, `/haftalik`),
   haftalik tahlil.
 - **4-bosqich:** `disney-bot.service` (systemd), VPS o'rnatish yo'riqnomasi,
   debug komandalar.
