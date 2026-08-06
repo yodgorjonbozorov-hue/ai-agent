@@ -3,8 +3,8 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** 3-bosqich yakunlandi. systemd unit, VPS yo'riqnomasi va debug
-> komandalar 4-bosqichда qo'shiladi.
+> **Holat:** To'liq tayyor (1–4 bosqich). systemd bilan VPS'да ishga tushirishga
+> tayyor.
 
 ## Texnologiyalar
 
@@ -12,7 +12,7 @@ va adminga xulosa beradigan Telegram bot.
 - [aiogram 3.x](https://docs.aiogram.dev/) — asinxron Telegram bot
 - [APScheduler](https://apscheduler.readthedocs.io/) — kunlik jadval
 - SQLite + `aiosqlite` — ma'lumotlar bazasi
-- Anthropic Claude API — AI tekshiruv (2-bosqich)
+- Anthropic Claude API — AI tekshiruv (`claude-sonnet-4-6`)
 - Vaqt mintaqasi: `Asia/Tashkent` (`zoneinfo`)
 
 ## Loyiha strukturasi
@@ -27,11 +27,13 @@ va adminga xulosa beradigan Telegram bot.
 │   ├── admin.py           # admin komandalari (shaxsiy chat)
 │   └── groups.py          # guruh xabarlari va my_chat_member
 ├── services/
+│   ├── ai_checker.py      # Claude API orqali hisobotni baholash
 │   ├── scheduler.py       # kunlik jadval joblari
-│   └── reporter.py        # kunlik xulosa tuzish
+│   └── reporter.py        # kunlik/haftalik xulosa tuzish
 ├── requirements.txt
 ├── .env.example
-└── disney-bot.service     # (4-bosqichда)
+├── .gitignore
+└── disney-bot.service     # systemd unit fayli
 ```
 
 ## Hozircha nima ishlaydi
@@ -77,6 +79,17 @@ va adminga xulosa beradigan Telegram bot.
   - `/haftalik` — haftalik reytingni darhol ko'rish
   - `/bekor` — interaktiv jarayonni bekor qilish
 
+**4-bosqich (joylashtirish va debug)**
+- **`disney-bot.service`:** systemd unit — VPS'да avtomatik ishga tushirish,
+  nosozlikda qayta ishga tushirish.
+- **Debug komandalar** (jadvalni kutmasdan qo'lda test qilish uchun):
+  - `/debug` — debug komandalar ro'yxati
+  - `/test_ertalabki <id>` — guruhga ertalabki xabarni yuborish
+  - `/test_sorov <id>` — guruhga hisobot so'rovini yuborish
+  - `/test_eslatma` — hozir hisobot bermaganlarga eslatma
+  - `/test_haftalik` — haftalik tahlilni adminга yuborish
+  - `/test_xulosa` — kunlik xulosani ko'rsatish
+
 ## O'rnatish (lokal test)
 
 ```bash
@@ -109,7 +122,72 @@ Bot ishga tushgach:
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
-## Keyingi bosqichlar
+## VPS'га o'rnatish (systemd)
 
-- **4-bosqich:** `disney-bot.service` (systemd), VPS o'rnatish yo'riqnomasi,
-  qo'lda test uchun debug komandalar.
+Ubuntu/Debian VPS uchun to'liq yo'riqnoma. Bot 24/7 ishlaydi va nosozlikда
+avtomatik qayta ishga tushadi.
+
+**1. Tizim tayyorligi va foydalanuvchi**
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-venv git
+# Bot uchun alohida (root bo'lmagan) foydalanuvchi
+sudo useradd -r -m -d /opt/disney-report-bot disney
+```
+
+**2. Kodni joylashtirish**
+
+```bash
+sudo -u disney git clone <repo-url> /opt/disney-report-bot
+cd /opt/disney-report-bot
+sudo -u disney python3 -m venv .venv
+sudo -u disney .venv/bin/pip install -r requirements.txt
+```
+
+**3. Sozlamalar (`.env`)**
+
+```bash
+sudo -u disney cp .env.example .env
+sudo -u disney nano .env   # BOT_TOKEN, ADMIN_ID, ANTHROPIC_API_KEY ni to'ldiring
+```
+
+**4. systemd xizmatini o'rnatish**
+
+```bash
+sudo cp disney-bot.service /etc/systemd/system/disney-bot.service
+# Unit faylдаги User/WorkingDirectory/yo'llarni tekshiring (standart: disney, /opt/disney-report-bot)
+sudo systemctl daemon-reload
+sudo systemctl enable --now disney-bot
+```
+
+**5. Boshqarish va loglar**
+
+```bash
+sudo systemctl status disney-bot        # holat
+sudo systemctl restart disney-bot       # qayta ishga tushirish
+sudo journalctl -u disney-bot -f        # jonli log
+tail -f /opt/disney-report-bot/logs/bot.log
+```
+
+**Yangilash:**
+
+```bash
+cd /opt/disney-report-bot
+sudo -u disney git pull
+sudo -u disney .venv/bin/pip install -r requirements.txt
+sudo systemctl restart disney-bot
+```
+
+## Ishga tushgach — birinchi qadamlar
+
+1. Botni ishchi guruhlarga **admin** sifatida qo'shing → guruhlar avtomatik
+   ro'yxatga olinadi va sizga xabar keladi.
+2. `/vazifa` bilan har guruhga bugungi vazifalarni qo'shing.
+3. Kerak bo'lsa `/vaqt` bilan so'rov/ertalab vaqtlarini moslang.
+4. `/debug` komandalari orqali jadvalni kutmasdan sinab ko'ring.
+
+## Eslatma
+
+- Sirlar (`.env`) va baza (`data/`) `.gitignore`да — repozitoriyaga tushmaydi.
+- `ANTHROPIC_API_KEY` bo'sh bo'lsa AI tekshiruv o'chadi, qolgan hamma narsa
+  ishlaydi (hisobotlar `pending` holatida saqlanadi).

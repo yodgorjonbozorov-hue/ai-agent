@@ -1,0 +1,42 @@
+# Disney Navoiy Hisobot Bot — systemd unit fayli
+# O'rnatish: bu faylni /etc/systemd/system/disney-bot.service ga nusxalang.
+# Quyidagi yo'llar va foydalanuvchi nomini o'zingiznikiga moslang.
+
+[Unit]
+Description=Disney Navoiy Hisobot Bot (Telegram)
+# Tarmoq tayyor bo'lgach ishga tushsin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Botni ishga tushiradigan foydalanuvchi (root emas, alohida foydalanuvchi tavsiya etiladi)
+User=disney
+Group=disney
+
+# Loyiha joylashuvi
+WorkingDirectory=/opt/disney-report-bot
+
+# Virtual muhitdagi python bilan ishga tushirish
+ExecStart=/opt/disney-report-bot/.venv/bin/python bot.py
+
+# Loglar darhol yozilsin (buferlanmasin)
+Environment=PYTHONUNBUFFERED=1
+
+# Nosozlikda avtomatik qayta ishga tushirish
+Restart=always
+RestartSec=5
+
+# Jurnalда aniqroq nom
+SyslogIdentifier=disney-bot
+
+# Xavfsizlik cheklovlari (ixtiyoriy, lekin tavsiya etiladi)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# Bot faqat o'z data/ va logs/ jildlariga yozadi
+ReadWritePaths=/opt/disney-report-bot/data /opt/disney-report-bot/logs
+
+[Install]
+WantedBy=multi-user.target

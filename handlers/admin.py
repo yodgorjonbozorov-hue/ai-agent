@@ -179,6 +179,87 @@ async def cmd_cancel(message: Message, settings: Settings, state: FSMContext) ->
 
 
 # --------------------------------------------------------------------------
+# Debug komandalar — jadvalni kutmasdan qo'lda ishga tushirish
+# --------------------------------------------------------------------------
+
+@router.message(Command("debug"))
+async def cmd_debug(message: Message, settings: Settings) -> None:
+    """Debug komandalar ro'yxati."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    await message.answer(texts.DEBUG_HELP)
+
+
+@router.message(Command("test_haftalik"))
+async def cmd_test_weekly(
+    message: Message, settings: Settings, scheduler: BotScheduler
+) -> None:
+    """Haftalik tahlilni adminга yuborish yo'lini sinaydi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    await scheduler.trigger_weekly()
+    await message.answer(texts.TEST_DONE)
+
+
+@router.message(Command("test_ertalabki"))
+async def cmd_test_morning(
+    message: Message,
+    command: CommandObject,
+    settings: Settings,
+    scheduler: BotScheduler,
+) -> None:
+    """Guruhga ertalabki xabarni qo'lda yuboradi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    gid = _parse_group_id(command)
+    if gid is None:
+        await message.answer(texts.USAGE_TEST_MORNING)
+        return
+    if not await db.get_group_by_id(gid):
+        await message.answer(texts.GROUP_NOT_FOUND)
+        return
+    await scheduler.trigger_morning(gid)
+    await message.answer(texts.TEST_SENT_GROUP)
+
+
+@router.message(Command("test_sorov"))
+async def cmd_test_request(
+    message: Message,
+    command: CommandObject,
+    settings: Settings,
+    scheduler: BotScheduler,
+) -> None:
+    """Guruhga hisobot so'rovini qo'lda yuboradi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    gid = _parse_group_id(command)
+    if gid is None:
+        await message.answer(texts.USAGE_TEST_REQUEST)
+        return
+    if not await db.get_group_by_id(gid):
+        await message.answer(texts.GROUP_NOT_FOUND)
+        return
+    await scheduler.trigger_request(gid)
+    await message.answer(texts.TEST_SENT_GROUP)
+
+
+@router.message(Command("test_eslatma"))
+async def cmd_test_reminders(
+    message: Message, settings: Settings, scheduler: BotScheduler
+) -> None:
+    """Hozir hisobot bermaganlarga eslatma yuborishni sinaydi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    await scheduler.trigger_reminders()
+    await message.answer(texts.TEST_DONE)
+
+
+# --------------------------------------------------------------------------
 # /pauza, /faol, /matn — argumentli komandalar
 # --------------------------------------------------------------------------
 

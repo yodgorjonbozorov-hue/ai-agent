@@ -237,3 +237,23 @@ class BotScheduler:
             logger.info("Haftalik tahlil adminga yuborildi")
         except Exception:
             logger.error("Haftalik tahlil xatosi", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Debug uchun qo'lda ishga tushirish (admin komandalari chaqiradi)
+    # ------------------------------------------------------------------
+
+    async def trigger_morning(self, group_id: int) -> None:
+        """Ertalabki xabarni qo'lda yuboradi."""
+        await self._send_morning(group_id)
+
+    async def trigger_request(self, group_id: int) -> None:
+        """Hisobot so'rovini qo'lda yuboradi."""
+        await self._send_request(group_id)
+
+    async def trigger_reminders(self) -> None:
+        """Eslatmalarni qo'lda yuboradi (muloyim)."""
+        await self._send_reminders_soft()
+
+    async def trigger_weekly(self) -> None:
+        """Haftalik tahlilni qo'lda yuboradi."""
+        await self._send_weekly()

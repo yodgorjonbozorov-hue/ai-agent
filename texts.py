@@ -142,7 +142,8 @@ ADMIN_START = (
     "/haftalik — haftalik reyting\n"
     "/pauza <guruh_id> — guruhni to'xtatish\n"
     "/faol <guruh_id> — guruhni yoqish\n"
-    "/matn <guruh_id> — guruhning bugungi hisobot matni"
+    "/matn <guruh_id> — guruhning bugungi hisobot matni\n"
+    "/debug — qo'lda test komandalari"
 )
 
 NOT_ADMIN = "⛔ Bu bot faqat admin uchun."
@@ -250,3 +251,22 @@ def weekly_group_line(
         f"{medal} {name}\n"
         f"    Hisobot berish: {percent}% | O'rtacha baho: {avg_txt}"
     )
+
+
+# --------------------------------------------------------------------------
+# Debug komandalar (qo'lda test qilish uchun)
+# --------------------------------------------------------------------------
+
+DEBUG_HELP = (
+    "🧪 Debug komandalar (jadvalni kutmasdan qo'lda ishga tushirish):\n\n"
+    "/test_xulosa — kunlik xulosani ko'rsatish\n"
+    "/test_haftalik — haftalik tahlilni adminga yuborish\n"
+    "/test_ertalabki <id> — guruhga ertalabki xabarni yuborish\n"
+    "/test_sorov <id> — guruhga hisobot so'rovini yuborish\n"
+    "/test_eslatma — hozir hisobot bermaganlarga eslatma yuborish"
+)
+
+USAGE_TEST_MORNING = "Foydalanish: /test_ertalabki <guruh_id>"
+USAGE_TEST_REQUEST = "Foydalanish: /test_sorov <guruh_id>"
+TEST_DONE = "✅ Test bajarildi."
+TEST_SENT_GROUP = "✅ Guruhga yuborildi."
