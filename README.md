@@ -106,6 +106,18 @@ cp .env.example .env
 python bot.py
 ```
 
+### Tez tekshiruv (tarmoqsiz)
+
+Kodni haqiqiy token yoki API kalitisiz, Telegram'ga ulanmasdan sinash uchun:
+
+```bash
+python smoke_test.py
+```
+
+Bu skript soxta token bilan botning butun ulanish zanjirini (sozlamalar,
+baza, routerlar, scheduler + vaqt mintaqasi, xulosalar) tekshiradi va
+`SMOKE OK ...` chop etsa — hammasi joyida.
+
 Bot ishga tushgach:
 1. Botni ishchi guruhga admin sifatida qo'shing → guruh avtomatik ro'yxatga olinadi.
 2. Admin bilan shaxsiy chatда `/start` yuboring → yordam matni.
