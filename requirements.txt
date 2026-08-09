@@ -2,7 +2,7 @@
 
 aiogram==3.13.1          # asinxron Telegram bot freymvorki
 APScheduler==3.10.4      # kunlik jadval vazifalari uchun
-aiosqlite==0.20.0        # SQLite bilan asinxron ishlash
+libsql-client==0.3.1     # libSQL/Turso (yoki lokal SQLite) bilan asinxron ishlash
 python-dotenv==1.0.1     # .env fayldan sozlamalarni o'qish
 anthropic==0.120.2       # Claude AI API (claude-sonnet-4-6)
 tzdata==2024.2           # zoneinfo uchun vaqt mintaqasi ma'lumotlari

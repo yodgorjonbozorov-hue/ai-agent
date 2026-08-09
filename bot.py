@@ -67,6 +67,7 @@ async def main() -> None:
         if scheduler.scheduler.running:
             scheduler.scheduler.shutdown(wait=False)
         await bot.session.close()
+        await db.close_db()
         logger.info("Bot to'xtatildi.")
 
 

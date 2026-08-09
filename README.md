@@ -11,7 +11,7 @@ va adminga xulosa beradigan Telegram bot.
 - Python 3.11+
 - [aiogram 3.x](https://docs.aiogram.dev/) — asinxron Telegram bot
 - [APScheduler](https://apscheduler.readthedocs.io/) — kunlik jadval
-- SQLite + `aiosqlite` — ma'lumotlar bazasi
+- libSQL (`libsql-client`) — **Turso** (bulutdagi baza) yoki lokal SQLite fayl
 - Anthropic Claude API — AI tekshiruv (`claude-sonnet-4-6`)
 - Vaqt mintaqasi: `Asia/Tashkent` (`zoneinfo`)
 
@@ -130,9 +130,26 @@ Bot ishga tushgach:
 | `BOT_TOKEN` | BotFather'dan olingan token |
 | `ANTHROPIC_API_KEY` | Claude API kaliti (bo'sh bo'lsa AI o'chadi) |
 | `ADMIN_ID` | Admin Telegram ID (butun son) |
-| `DB_PATH` | Baza fayli, standart `data/bot.db` |
+| `DB_PATH` | Lokal baza fayli (Turso ishlatilmasa), standart `data/bot.db` |
+| `TURSO_DATABASE_URL` | Turso baza URL'i (bo'sh bo'lsa lokal fayl ishlatiladi) |
+| `TURSO_AUTH_TOKEN` | Turso token (URL berilganda kerak) |
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+
+### Turso (ixtiyoriy — bulutdagi baza)
+
+`TURSO_DATABASE_URL` va `TURSO_AUTH_TOKEN` to'ldirilsa, bot ma'lumotni lokal
+fayl o'rniga **Turso** bulut bazasiga yozadi. Bu, ayniqsa, diski "vaqtinchalik"
+bo'lgan hostlarda (Railway, Render va h.k.) muhim — bot qayta ishga tushganда
+ma'lumot yo'qolmaydi. Doimiy VPS'da esa Turso shart emas: bo'sh qoldiring,
+lokal `DB_PATH` ishlatiladi.
+
+Qiymatlarni olish:
+
+```bash
+turso db show <baza-nomi> --url          # → TURSO_DATABASE_URL
+turso db tokens create <baza-nomi>        # → TURSO_AUTH_TOKEN
+```
 
 ## VPS'га o'rnatish — eng oson yo'l (bitta buyruq)
 
