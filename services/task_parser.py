@@ -66,9 +66,16 @@ def _system_prompt(guruhlar_matni: str, bugun: str, ertaga: str, bugun_kuni: str
         "- Har bir vazifani alohida qatorga ajrat, qisqa va aniq yoz.\n"
         "- Bir xabarda bir necha guruh bo'lishi mumkin — har biri alohida "
         "topshiriq bo'ladi.\n\n"
+        "NIYATNI ANIQLASH (birinchi qadam):\n"
+        "- Foydalanuvchi ish TOPSHIRAYOTGAN bo'lsa (kimdir nimadir qilsin) "
+        "-> niyat='vazifa'.\n"
+        "- Foydalanuvchi ma'lumot SO'RAYOTGAN bo'lsa (kim, nima, qachon, "
+        "qancha, qaysi, nega; '...bermadi?', '...bormi?', 'ko'rsat', 'ayt') "
+        "-> niyat='savol'. Bunda topshiriqlar bo'sh ro'yxat bo'ladi.\n\n"
         "FAQAT quyidagi JSON obyektini qaytar. Izoh, markdown yoki backtick "
         "qo'shma:\n"
         "{\n"
+        '  "niyat": "vazifa",\n'
         '  "tushunarli": true,\n'
         '  "savol": "",\n'
         '  "topshiriqlar": [\n'
@@ -145,10 +152,21 @@ def _normalize(
         })
 
     savol = str(data.get("savol", "") or "").strip()
-    # Topshiriq chiqmagan bo'lsa — bu tushunarsiz xabar demakdir
-    tushunarli = bool(data.get("tushunarli", False)) and bool(topshiriqlar)
+    niyat = "savol" if str(data.get("niyat", "")).strip() == "savol" else "vazifa"
 
-    return {"tushunarli": tushunarli, "savol": savol, "topshiriqlar": topshiriqlar}
+    # Vazifa niyatida topshiriq chiqmagan bo'lsa — bu tushunarsiz xabar.
+    # Savol niyatida topshiriq bo'lmasligi normal.
+    tushunarli = (
+        niyat == "savol"
+        or (bool(data.get("tushunarli", False)) and bool(topshiriqlar))
+    )
+
+    return {
+        "niyat": niyat,
+        "tushunarli": tushunarli,
+        "savol": savol,
+        "topshiriqlar": topshiriqlar,
+    }
 
 
 class TaskParser:

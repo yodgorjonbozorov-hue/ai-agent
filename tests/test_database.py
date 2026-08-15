@@ -163,3 +163,91 @@ async def test_sorov_kunlari_oraliqda(database, group_id):
 
     kunlar = await database.get_log_dates_range("2026-03-09", "2026-03-10", "request")
     assert sorted(d for _, d in kunlar) == ["2026-03-09", "2026-03-10"]
+
+
+# --------------------------------------------------------------------------
+# Migratsiya — ishlab turgan bazaga yangi ustun qo'shish
+# --------------------------------------------------------------------------
+
+ESKI_SXEMA = """
+CREATE TABLE groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER UNIQUE NOT NULL,
+    name TEXT, department TEXT, request_time TEXT NOT NULL DEFAULT '18:00',
+    morning_time TEXT NOT NULL DEFAULT '09:00',
+    is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL,
+    date TEXT NOT NULL, text TEXT NOT NULL);
+CREATE TABLE reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL,
+    user_id INTEGER, user_name TEXT, date TEXT NOT NULL, raw_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', ai_score INTEGER, ai_summary TEXT,
+    missing_parts TEXT, has_problem INTEGER NOT NULL DEFAULT 0,
+    problem_text TEXT, created_at TEXT NOT NULL);
+CREATE TABLE logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER, date TEXT NOT NULL,
+    type TEXT NOT NULL, created_at TEXT NOT NULL);
+"""
+
+
+async def test_eski_baza_yangilanadi_va_malumot_saqlanadi(tmp_path):
+    """
+    Serverda allaqachon ishlab turgan baza yangi ustunlarni olishi va
+    eski ma'lumot buzilmasligi kerak.
+    """
+    import aiosqlite
+    import database as real_db
+
+    yol = str(tmp_path / "eski.db")
+    async with aiosqlite.connect(yol) as db:
+        await db.executescript(ESKI_SXEMA)
+        await db.execute(
+            "INSERT INTO groups (chat_id, name, created_at) VALUES (?, ?, ?)",
+            (-100777, "Eski guruh", "2026-01-01T00:00:00"),
+        )
+        await db.execute(
+            "INSERT INTO reports (group_id, date, raw_text, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (1, "2026-01-01", "Eski hisobot matni", "2026-01-01T18:00:00"),
+        )
+        await db.commit()
+
+    # Bot ishga tushgandagidek init_db chaqiramiz
+    await real_db.init_db(yol)
+
+    try:
+        # Eski ma'lumot joyida
+        guruhlar = await real_db.get_all_groups()
+        assert [g["name"] for g in guruhlar] == ["Eski guruh"]
+        hisobot = await real_db.get_latest_report(1, "2026-01-01")
+        assert hisobot["raw_text"] == "Eski hisobot matni"
+
+        # Yangi ustunlar qo'shilgan va bo'sh
+        assert hisobot["done_tasks"] is None
+        assert hisobot["undone_tasks"] is None
+        assert hisobot["has_photo"] == 0
+
+        # Yangi jadval ham yaratilgan
+        assert await real_db.get_recurring_tasks(1) == []
+
+        # Yangi ustunlarga yozib bo'ladi
+        await real_db.update_report_ai(
+            report_id=hisobot["id"], status="accepted", ai_score=4,
+            ai_summary="xulosa", missing_parts=[], has_problem=False,
+            problem_text="", done_tasks=["birinchi"], undone_tasks=["ikkinchi"],
+        )
+        yangilangan = await real_db.get_latest_report(1, "2026-01-01")
+        assert json.loads(yangilangan["done_tasks"]) == ["birinchi"]
+        assert json.loads(yangilangan["undone_tasks"]) == ["ikkinchi"]
+    finally:
+        real_db.set_db_path("data/bot.db")
+
+
+async def test_migratsiya_takroriy_chaqiruvga_chidamli(tmp_path):
+    """init_db har safar ishga tushganda chaqiriladi — xato bermasligi kerak."""
+    import database as real_db
+    yol = str(tmp_path / "takror.db")
+    await real_db.init_db(yol)
+    await real_db.init_db(yol)
+    await real_db.init_db(yol)
+    real_db.set_db_path("data/bot.db")

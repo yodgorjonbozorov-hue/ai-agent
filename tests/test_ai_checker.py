@@ -65,6 +65,8 @@ def test_bosh_dict_xavfsiz_standartlarga_tushadi():
         "muammo_qisqacha": "",
         "baho": 3,
         "qisqa_xulosa": "",
+        "bajarilgan": [],
+        "bajarilmagan": [],
     }
 
 
@@ -100,3 +102,29 @@ async def test_kalitsiz_tekshiruv_none_qaytaradi():
     """Kalit bo'lmasa bot yiqilmaydi — hisobot 'pending' holatida qoladi."""
     checker = AiChecker(api_key="")
     assert await checker.check_report("Uzun hisobot matni", ["vazifa"]) is None
+
+
+# --------------------------------------------------------------------------
+# Vazifa nazorati — qaysi vazifa bajarilgan
+# --------------------------------------------------------------------------
+
+def test_bajarilgan_va_bajarilmagan_vazifalar():
+    natija = _normalize({
+        "toliq": True, "baho": 4,
+        "bajarilgan": ["devor suvash", "pol tayyorlash"],
+        "bajarilmagan": ["elektr chizmasini tekshirish"],
+    })
+    assert natija["bajarilgan"] == ["devor suvash", "pol tayyorlash"]
+    assert natija["bajarilmagan"] == ["elektr chizmasini tekshirish"]
+
+
+def test_vazifa_royxatlari_buzuq_bolsa_boshatiladi():
+    """Model ro'yxat o'rniga matn qaytarsa ham yiqilmasligi kerak."""
+    natija = _normalize({"bajarilgan": "hammasi", "bajarilmagan": None})
+    assert natija["bajarilgan"] == []
+    assert natija["bajarilmagan"] == []
+
+
+def test_bosh_qatorlar_tashlanadi():
+    natija = _normalize({"bajarilgan": ["  ", "", "devor suvash"]})
+    assert natija["bajarilgan"] == ["devor suvash"]

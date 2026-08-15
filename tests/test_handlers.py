@@ -67,6 +67,23 @@ def sent(monkeypatch):
     return yuborilgan
 
 
+class SoxtaAssistant:
+    """Tarmoqqa chiqmaydigan soxta yordamchi."""
+
+    def __init__(self, javob: str | None = "Soxta javob"):
+        self.javob = javob
+        self.savollar: list[str] = []
+
+    @property
+    def enabled(self):
+        return True
+
+    async def answer(self, question, context):
+        self.savollar.append(question)
+        self.oxirgi_kontekst = context
+        return self.javob
+
+
 @pytest.fixture
 def guruhga(monkeypatch):
     """bot.send_message orqali guruhlarga ketgan xabarlarni yig'adi."""
@@ -87,6 +104,7 @@ async def dispatcher(settings):
     dp["settings"] = settings
     dp["scheduler"] = BotScheduler(bot=bot, settings=settings)
     dp["ai_checker"] = AiChecker(api_key=settings.anthropic_api_key)
+    dp["assistant"] = SoxtaAssistant()
     dp.include_router(admin.router)
     dp.include_router(groups.router)
     yield dp, bot
@@ -565,3 +583,148 @@ async def test_vazifa_komandasi_ham_darhol_yuboradi(
     assert len(guruhga) == 1
     assert "devor suvash" in guruhga[0][1]
     assert "pol tayyorlash" in guruhga[0][1]
+
+
+# --------------------------------------------------------------------------
+# Rasm bilan hisobot
+# --------------------------------------------------------------------------
+
+def _photo_message(caption: str = "") -> Update:
+    """Rasmli xabarni taqlid qiladi."""
+    from aiogram.types import PhotoSize
+    return Update(
+        update_id=3,
+        message=Message(
+            message_id=3,
+            date=datetime.now(TZ),
+            chat=Chat(id=GROUP_CHAT_ID, type="supergroup"),
+            from_user=User(id=777, is_bot=False, first_name="Ali"),
+            caption=caption or None,
+            photo=[PhotoSize(file_id="f1", file_unique_id="u1",
+                             width=100, height=100)],
+        ),
+    )
+
+
+async def _sorov_yuborilgan(gid: int) -> str:
+    from services import reporter
+    bugun = reporter.today_str(TZ)
+    await db.add_log(gid, bugun, "request", TZ)
+    return bugun
+
+
+async def test_izohsiz_rasm_hisobot_deb_qabul_qilinadi(dispatcher, sent):
+    """
+    Ishchi faqat rasm yuborsa ham "hisobot yo'q" deb qolmasligi kerak —
+    aks holda admin ishlagan odamni behuda chaqiradi.
+    """
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Tozalik", tz=TZ)
+    bugun = await _sorov_yuborilgan(gid)
+
+    await dp.feed_update(bot, _photo_message())
+
+    assert sent == [texts.RASM_QABUL_QILINDI]
+    hisobot = await db.get_latest_report(gid, bugun)
+    assert hisobot is not None
+    assert hisobot["has_photo"] == 1
+
+
+async def test_uzun_izohli_rasm_toliq_hisobot(dispatcher, sent):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Tozalik", tz=TZ)
+    bugun = await _sorov_yuborilgan(gid)
+
+    await dp.feed_update(bot, _photo_message(UZUN_MATN))
+
+    # AI o'chirilgan — oddiy tasdiq, lekin matn saqlanadi
+    assert sent == [texts.REPORT_RECEIVED_PLAIN]
+    hisobot = await db.get_latest_report(gid, bugun)
+    assert hisobot["raw_text"] == UZUN_MATN
+    assert hisobot["has_photo"] == 1
+
+
+async def test_sorovdan_oldin_rasm_qabul_qilinmaydi(dispatcher, sent):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Tozalik", tz=TZ)
+    from services import reporter
+
+    await dp.feed_update(bot, _photo_message("tozalandi"))
+
+    assert sent == []
+    assert await db.get_latest_report(gid, reporter.today_str(TZ)) is None
+
+
+async def test_matnsiz_qisqa_xabar_hali_ham_etiborsiz(dispatcher, sent):
+    """Rasm qo'shilishi qisqa matnli xabarlarni hisobot qilib yubormasligi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Tozalik", tz=TZ)
+    bugun = await _sorov_yuborilgan(gid)
+
+    await dp.feed_update(bot, _group_message("rahmat"))
+
+    assert sent == []
+    assert await db.get_latest_report(gid, bugun) is None
+
+
+# --------------------------------------------------------------------------
+# Savol berish
+# --------------------------------------------------------------------------
+
+async def test_savolga_javob_beriladi(dispatcher, sent, edit_matnlari):
+    """«Kim hisobot bermadi?» kabi savolga vazifa emas, javob qaytishi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    yordamchi = SoxtaAssistant("Bugun Qurilish guruhi hisobot bermadi.")
+    dp["assistant"] = yordamchi
+    dp["task_parser"] = SoxtaParser({
+        "niyat": "savol", "tushunarli": True, "savol": "", "topshiriqlar": [],
+    })
+
+    await dp.feed_update(bot, _message(
+        "Kim bugun hisobot bermadi?",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert yordamchi.savollar == ["Kim bugun hisobot bermadi?"]
+    assert edit_matnlari[-1] == "Bugun Qurilish guruhi hisobot bermadi."
+    # Savol vazifa sifatida saqlanmasligi kerak
+    from services import reporter
+    assert await db.get_tasks(gid, reporter.today_str(TZ)) == []
+
+
+async def test_savol_konteksti_bazadan_yigiladi(dispatcher, sent, edit_matnlari):
+    """Yordamchiga guruh nomi va bugungi holat berilishi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    from services import reporter
+    bugun = reporter.today_str(TZ)
+    await db.add_task(gid, bugun, "devor suvash")
+
+    yordamchi = SoxtaAssistant("javob")
+    dp["assistant"] = yordamchi
+    dp["task_parser"] = SoxtaParser({
+        "niyat": "savol", "tushunarli": True, "savol": "", "topshiriqlar": [],
+    })
+
+    await dp.feed_update(bot, _message(
+        "Bugun nima bor?", chat_id=ADMIN_ID, chat_type="private",
+        user_id=ADMIN_ID))
+
+    kontekst = yordamchi.oxirgi_kontekst
+    assert "Qurilish" in kontekst
+    assert "devor suvash" in kontekst
+    assert "Bugungi hisobot: YO'Q" in kontekst
+
+
+async def test_yordamchi_javob_bermasa_ogohlantiradi(dispatcher, sent, edit_matnlari):
+    dp, bot = dispatcher
+    await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["assistant"] = SoxtaAssistant(None)   # AI javob bermadi
+    dp["task_parser"] = SoxtaParser({
+        "niyat": "savol", "tushunarli": True, "savol": "", "topshiriqlar": [],
+    })
+
+    await dp.feed_update(bot, _message(
+        "Savol?", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert edit_matnlari[-1] == texts.SAVOLGA_JAVOB_YOQ

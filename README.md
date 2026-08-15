@@ -3,7 +3,7 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** Tugallangan (1–6 bosqich). 90 ta avtomatik test o'tadi,
+> **Holat:** Tugallangan (1–7 bosqich). 126 ta avtomatik test o'tadi,
 > systemd bilan VPS'da ishga tushirishga tayyor.
 
 ## Texnologiyalar
@@ -28,10 +28,11 @@ va adminga xulosa beradigan Telegram bot.
 │   └── groups.py          # guruh xabarlari va my_chat_member
 ├── services/
 │   ├── ai_checker.py      # Claude API orqali hisobotni baholash
-│   ├── task_parser.py     # erkin matndan vazifalarni ajratish
+│   ├── task_parser.py     # erkin matndan vazifa/savol niyatini ajratish
+│   ├── assistant.py       # admin savollariga javob berish
 │   ├── scheduler.py       # kunlik jadval joblari
 │   └── reporter.py        # kunlik/haftalik xulosa tuzish
-├── tests/                 # pytest testlari (90 ta)
+├── tests/                 # pytest testlari (126 ta)
 │   ├── conftest.py        # vaqtinchalik baza fixture'lari
 │   ├── test_database.py   # CRUD va loglar
 │   ├── test_reporter.py   # kunlik xulosa, eslatma, haftalik tahlil
@@ -144,6 +145,23 @@ va adminga xulosa beradigan Telegram bot.
 - **AI o'chiq bo'lsa:** erkin matn ishlamaydi (bot buni aytadi), lekin
   `/vazifa` va qolgan hamma narsa ishlayveradi.
 
+**7-bosqich (savol berish, vazifa nazorati, rasm)**
+- **Savol berish:** admin komandalarni eslab qolmasdan so'raydi —
+  «Kim bugun hisobot bermadi?», «Disney guruhi nima yozdi?», «Bu hafta
+  qaysi guruh yomon ishlayapti?». Bot bazadan holat lavhasini yig'ib,
+  faqat shu ma'lumotga tayanib javob beradi (o'ylab topmaydi).
+  Erkin matnda niyat avtomatik aniqlanadi: vazifa berish yoki savol.
+- **Vazifa nazorati:** AI kelgan hisobotni o'sha kunning vazifalari bilan
+  solishtiradi. Kunlik xulosada `📋 3 tadan 2 tasi bajarildi` va
+  bajarilmaganlari ro'yxati ko'rinadi.
+- **Rasm bilan hisobot:** ishchi rasm yuborsa ham hisobot hisoblanadi
+  (izohsiz ham). Ilgari bot rasmni ko'rmasdi va «hisobot yo'q» derdi —
+  bu admin uchun soxta ish yaratardi. Xulosada rasmli hisobot 📷 bilan
+  belgilanadi.
+- **Baza migratsiyasi:** ishlab turgan bazaga yangi ustunlar avtomatik
+  qo'shiladi (`done_tasks`, `undone_tasks`, `has_photo`). Mavjud
+  ma'lumotga tegilmaydi; test buni eski sxemali baza bilan tekshiradi.
+
 ## O'rnatish (lokal test)
 
 ```bash
@@ -172,7 +190,7 @@ vaqtinchalik SQLite faylida ishlaydi.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest          # 90 ta test, ~6 soniya
+python -m pytest          # 126 ta test, ~7 soniya
 python -m pytest -v       # har bir test nomi bilan
 ```
 

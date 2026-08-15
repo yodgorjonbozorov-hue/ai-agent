@@ -40,6 +40,7 @@ import texts
 from config import Settings
 from services import reporter
 from services.scheduler import BotScheduler
+from services.assistant import Assistant
 from services.task_parser import TaskParser
 
 logger = logging.getLogger(__name__)
@@ -586,8 +587,15 @@ async def on_free_text(
     settings: Settings,
     state: FSMContext,
     task_parser: TaskParser,
+    assistant: Assistant,
 ) -> None:
-    """Admin oddiy gap bilan yozgan vazifalarni tushunadi."""
+    """
+    Admin oddiy gap bilan yozganini tushunadi.
+
+    Ikki xil bo'lishi mumkin:
+      - vazifa berish -> tasdiq so'raladi va saqlanadi
+      - savol         -> bazadagi ma'lumot asosida javob beriladi
+    """
     if not _is_admin_msg(message, settings):
         return
     if not task_parser.enabled:
@@ -609,6 +617,13 @@ async def on_free_text(
         # muammo, shuning uchun boshqa xabar ko'rsatamiz.
         if natija is None:
             await kutish.edit_text(texts.AI_ULANMADI)
+            return
+
+        # Savol berilgan — vazifa emas
+        if natija.get("niyat") == "savol":
+            kontekst = await reporter.build_assistant_context(settings.tz)
+            javob = await assistant.answer(message.text or "", kontekst)
+            await kutish.edit_text(javob or texts.SAVOLGA_JAVOB_YOQ)
             return
 
         if not natija["tushunarli"]:

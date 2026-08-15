@@ -130,7 +130,40 @@ def test_tushunarsiz_xabar_savol_bilan():
 
 def test_bosh_javob_yiqilmaydi():
     natija = _normalize({}, GURUHLAR, BUGUN)
-    assert natija == {"tushunarli": False, "savol": "", "topshiriqlar": []}
+    assert natija == {
+        "niyat": "vazifa", "tushunarli": False, "savol": "", "topshiriqlar": [],
+    }
+
+
+# --------------------------------------------------------------------------
+# Niyat: vazifa berish yoki savol
+# --------------------------------------------------------------------------
+
+def test_savol_niyati_topshiriqsiz_ham_tushunarli():
+    """Savolda topshiriq bo'lmasligi normal — 'tushunmadim' chiqmasligi kerak."""
+    natija = _normalize(
+        {"niyat": "savol", "topshiriqlar": []}, GURUHLAR, BUGUN
+    )
+    assert natija["niyat"] == "savol"
+    assert natija["tushunarli"] is True
+
+
+def test_vazifa_niyatida_topshiriqsiz_tushunarsiz():
+    natija = _normalize(
+        {"niyat": "vazifa", "tushunarli": True, "topshiriqlar": []},
+        GURUHLAR, BUGUN,
+    )
+    assert natija["tushunarli"] is False
+
+
+def test_notanish_niyat_vazifa_deb_qabul_qilinadi():
+    natija = _normalize(
+        {"niyat": "allaqanday", "tushunarli": True,
+         "topshiriqlar": [{"guruh_id": 1, "tur": "bir_martalik",
+                           "sana": BUGUN, "vazifalar": ["ish"]}]},
+        GURUHLAR, BUGUN,
+    )
+    assert natija["niyat"] == "vazifa"
 
 
 def test_buzuq_turlar_yiqilmaydi():

@@ -71,6 +71,13 @@ def report_incomplete(missing: list[str]) -> str:
 # Hisobot bazaga tushdi, lekin AI ishlamadi (pending)
 REPORT_RECEIVED_PLAIN = "✅ Hisobotingiz qabul qilindi, rahmat!"
 
+# Rasm izohsiz yoki juda qisqa izoh bilan kelganda
+RASM_IZOHSIZ = "(rasm — izohsiz)"
+RASM_QABUL_QILINDI = (
+    "📷 Rasm qabul qilindi, rahmat!\n"
+    "Imkon bo'lsa qisqacha izoh ham yozing — nima bajarilgani aniq bo'lishi uchun."
+)
+
 
 # --------------------------------------------------------------------------
 # Adminga yuboriladigan xabarlar
@@ -109,6 +116,20 @@ def admin_daily_summary(
     return text
 
 
+def vazifa_holati(bajarilgan: list[str], bajarilmagan: list[str]) -> str:
+    """
+    Kunlik xulosadagi vazifa nazorati qatorlari.
+    Vazifa belgilanmagan bo'lsa bo'sh matn qaytadi.
+    """
+    jami = len(bajarilgan) + len(bajarilmagan)
+    if jami == 0:
+        return ""
+    matn = f"\n    📋 {jami} tadan {len(bajarilgan)} tasi bajarildi"
+    for v in bajarilmagan:
+        matn += f"\n    ❌ {v}"
+    return matn
+
+
 def admin_problem_alert(group_name: str, problem: str) -> str:
     return (
         "🔴 DIQQAT — muammo signali\n\n"
@@ -134,10 +155,13 @@ def admin_escalation(missing_groups: list[str]) -> str:
 
 ADMIN_START = (
     "🤖 Disney Navoiy — Hisobot Bot\n\n"
-    "✍️ Vazifa berish uchun shunchaki oddiy gap bilan yozing, masalan:\n"
+    "✍️ Vazifa berish uchun oddiy gap bilan yozing:\n"
     "«Qurilish guruhiga ertaga: devor suvash, pol tayyorlash»\n"
-    "«Ta'mirlash guruhiga har kuni xavfsizlik tekshiruvi»\n"
-    "Men tushunib, saqlashdan oldin tasdiq so'rayman.\n\n"
+    "«Ta'mirlash guruhiga har kuni xavfsizlik tekshiruvi»\n\n"
+    "❓ Savol ham berishingiz mumkin:\n"
+    "«Kim bugun hisobot bermadi?»\n"
+    "«Disney guruhi nima yozdi?»\n"
+    "«Bu hafta qaysi guruh yomon ishlayapti?»\n\n"
     "Qolganini o'zim qilaman: har kuni ertalab vazifalarni yuboraman, "
     "kechqurun hisobot so'rayman, eslatma beraman va 22:00 da sizga "
     "xulosa yuboraman.\n\n"
@@ -361,6 +385,11 @@ def tushunmadim(savol: str, guruh_nomlari: list[str]) -> str:
     )
     return matn
 
+
+SAVOLGA_JAVOB_YOQ = (
+    "Javob tayyorlay olmadim. Biroz kutib qayta so'rang yoki "
+    "/hisobot, /guruhlar, /haftalik komandalaridan foydalaning."
+)
 
 AI_ULANMADI = (
     "⚠️ Hozir AI bilan bog'lana olmadim, shuning uchun matnni tushuna olmadim.\n\n"

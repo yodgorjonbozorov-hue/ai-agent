@@ -7,6 +7,7 @@ reporter.py — kunlik (va keyinchalik haftalik) xulosa tuzish.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from statistics import mean
@@ -22,6 +23,17 @@ logger = logging.getLogger(__name__)
 def today_str(tz: ZoneInfo) -> str:
     """Bugungi sanani YYYY-MM-DD ko'rinishida qaytaradi."""
     return datetime.now(tz).strftime("%Y-%m-%d")
+
+
+def _json_royxat(qiymat: Any) -> list[str]:
+    """Bazadagi JSON ustunni xavfsiz ro'yxatga aylantiradi."""
+    if not qiymat:
+        return []
+    try:
+        natija = json.loads(qiymat)
+    except (TypeError, ValueError):
+        return []
+    return [str(x) for x in natija] if isinstance(natija, list) else []
 
 
 def today_weekday(tz: ZoneInfo) -> int:
@@ -62,7 +74,7 @@ async def build_daily_summary(tz: ZoneInfo) -> str:
 
         submitted += 1
 
-        # AI xulosasi bo'lsa ko'rsatamiz (2-bosqich), aks holda oddiy belgi
+        # AI xulosasi bo'lsa ko'rsatamiz, aks holda oddiy belgi
         summary = (report.get("ai_summary") or "").strip()
         has_problem = bool(report.get("has_problem"))
 
@@ -71,10 +83,18 @@ async def build_daily_summary(tz: ZoneInfo) -> str:
         else:
             mark = "✅"
 
+        rasm = " 📷" if report.get("has_photo") else ""
         if summary:
-            lines.append(f"{mark} {name} — {summary}")
+            qator = f"{mark} {name}{rasm} — {summary}"
         else:
-            lines.append(f"{mark} {name} — hisobot qabul qilindi")
+            qator = f"{mark} {name}{rasm} — hisobot qabul qilindi"
+
+        # Vazifa nazorati: qaysi vazifa bajarildi, qaysi biri qolib ketdi
+        qator += texts.vazifa_holati(
+            _json_royxat(report.get("done_tasks")),
+            _json_royxat(report.get("undone_tasks")),
+        )
+        lines.append(qator)
 
         if has_problem:
             problem = (report.get("problem_text") or "").strip()
@@ -177,3 +197,104 @@ async def build_weekly_analysis(tz: ZoneInfo) -> str:
 
     period = f"{start.strftime('%d.%m')} – {today.strftime('%d.%m.%Y')}"
     return texts.admin_weekly(period, lines, all_problems)
+
+
+async def build_assistant_context(tz: ZoneInfo, kunlar: int = 7) -> str:
+    """
+    Admin savollariga javob berish uchun bazadan qisqa holat lavhasini
+    yig'adi. Matn modelga beriladi, shuning uchun ixcham va aniq.
+    """
+    bugun = today_str(tz)
+    hozir = datetime.now(tz).date()
+    boshi = (hozir - timedelta(days=kunlar - 1)).strftime("%Y-%m-%d")
+
+    groups = await db.get_all_groups()
+    reports = await db.get_reports_for_date(bugun)
+    oraliq = await db.get_reports_range(boshi, bugun)
+    sorov_kunlari = await db.get_log_dates_range(boshi, bugun, "request")
+
+    qatorlar: list[str] = [
+        f"Bugun: {bugun} ({pretty_date(tz)})",
+        f"Oraliq: {boshi} — {bugun}",
+        "",
+        "GURUHLAR VA BUGUNGI HOLAT:",
+    ]
+
+    for g in groups:
+        gid = int(g["id"])
+        nomi = g.get("name") or f"Guruh {gid}"
+        holat = "faol" if g.get("is_active") else "pauzada"
+        qatorlar.append(f"[{gid}] {nomi} ({holat})")
+
+        vazifalar = await db.get_tasks(gid, bugun)
+        if vazifalar:
+            qatorlar.append(
+                "  Bugungi vazifalar: "
+                + "; ".join(v["text"] for v in vazifalar)
+            )
+
+        doimiy = await db.get_recurring_tasks(gid)
+        if doimiy:
+            qatorlar.append(
+                "  Doimiy vazifalar: " + "; ".join(v["text"] for v in doimiy)
+            )
+
+        r = reports.get(gid)
+        if r is None:
+            qatorlar.append("  Bugungi hisobot: YO'Q")
+        else:
+            baho = r.get("ai_score")
+            qatorlar.append(
+                f"  Bugungi hisobot: BOR"
+                + (f", baho {baho}/5" if baho else "")
+                + (", rasm bilan" if r.get("has_photo") else "")
+                + f", yuborgan: {r.get('user_name') or 'nomalum'}"
+            )
+            if (r.get("ai_summary") or "").strip():
+                qatorlar.append(f"  Qisqacha: {r['ai_summary'].strip()}")
+            bajarilmagan = _json_royxat(r.get("undone_tasks"))
+            if bajarilmagan:
+                qatorlar.append(
+                    "  Bajarilmagan vazifalar: " + "; ".join(bajarilmagan)
+                )
+            if r.get("has_problem") and (r.get("problem_text") or "").strip():
+                qatorlar.append(f"  MUAMMO: {r['problem_text'].strip()}")
+            matn = (r.get("raw_text") or "").strip()
+            if matn:
+                qisqa = matn if len(matn) <= 400 else matn[:400] + "..."
+                qatorlar.append(f"  Hisobot matni: {qisqa}")
+
+    # Oraliq bo'yicha statistika
+    oxirgilar: dict[tuple[int, str], dict[str, Any]] = {}
+    for r in oraliq:
+        kalit = (int(r["group_id"]), r["date"])
+        oldingi = oxirgilar.get(kalit)
+        if oldingi is None or r["created_at"] >= oldingi["created_at"]:
+            oxirgilar[kalit] = r
+
+    sorov_soni: dict[int, set[str]] = {}
+    for gid, d in sorov_kunlari:
+        sorov_soni.setdefault(gid, set()).add(d)
+
+    qatorlar += ["", f"OXIRGI {kunlar} KUN:"]
+    for g in groups:
+        gid = int(g["id"])
+        nomi = g.get("name") or f"Guruh {gid}"
+        guruh_hisobotlari = [v for (k, _), v in oxirgilar.items() if k == gid]
+        kunlar_soni = len(guruh_hisobotlari)
+        sorovlar = len(sorov_soni.get(gid, set()))
+        bahalar = [r["ai_score"] for r in guruh_hisobotlari if r.get("ai_score")]
+        ortacha = f"{mean(bahalar):.1f}" if bahalar else "yo'q"
+        qatorlar.append(
+            f"[{gid}] {nomi}: {kunlar_soni} kun hisobot berdi "
+            f"({sorovlar} kun so'ralgan), o'rtacha baho {ortacha}"
+        )
+        muammolar = [
+            f"{r['date']}: {(r.get('problem_text') or '').strip()}"
+            for r in guruh_hisobotlari
+            if r.get("has_problem") and (r.get("problem_text") or "").strip()
+        ]
+        for m in sorted(muammolar):
+            qatorlar.append(f"  Muammo {m}")
+
+    return "\n".join(qatorlar)

@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS reports (
     missing_parts TEXT,
     has_problem   INTEGER NOT NULL DEFAULT 0,
     problem_text  TEXT,
+    done_tasks    TEXT,
+    undone_tasks  TEXT,
+    has_photo     INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL,
     FOREIGN KEY (group_id) REFERENCES groups (id)
 );
@@ -99,11 +102,34 @@ CREATE INDEX IF NOT EXISTS idx_recurring_group    ON recurring_tasks (group_id);
 """
 
 
+# Keyingi bosqichlarda qo'shilgan ustunlar.
+# CREATE TABLE IF NOT EXISTS ishlab turgan bazaga yangi ustun qo'shmaydi,
+# shuning uchun ularni alohida tekshirib qo'shamiz. Bu mavjud ma'lumotga
+# tegmaydi.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    # (jadval, ustun, ta'rif)
+    ("reports", "done_tasks", "TEXT"),      # bajarilgan vazifalar (JSON)
+    ("reports", "undone_tasks", "TEXT"),    # bajarilmagan vazifalar (JSON)
+    ("reports", "has_photo", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
+async def _apply_migrations(db: aiosqlite.Connection) -> None:
+    """Yetishmayotgan ustunlarni qo'shadi (ishlab turgan baza uchun)."""
+    for jadval, ustun, tarif in _MIGRATIONS:
+        cur = await db.execute(f"PRAGMA table_info({jadval})")
+        mavjud = {row[1] for row in await cur.fetchall()}
+        if ustun not in mavjud:
+            await db.execute(f"ALTER TABLE {jadval} ADD COLUMN {ustun} {tarif}")
+            logger.info("Bazaga ustun qo'shildi: %s.%s", jadval, ustun)
+
+
 async def init_db(db_path: str) -> None:
-    """Bazani yaratadi va sxemani qo'llaydi."""
+    """Bazani yaratadi, sxemani qo'llaydi va yetishmayotgan ustunlarni qo'shadi."""
     set_db_path(db_path)
     async with aiosqlite.connect(_DB_PATH) as db:
         await db.executescript(_SCHEMA)
+        await _apply_migrations(db)
         await db.commit()
     logger.info("Baza tayyor: %s", _DB_PATH)
 
@@ -343,6 +369,7 @@ async def add_report(
     date: str,
     raw_text: str,
     status: str = "pending",
+    has_photo: bool = False,
     tz: Optional[ZoneInfo] = None,
 ) -> int:
     """
@@ -354,10 +381,12 @@ async def add_report(
         cur = await db.execute(
             """
             INSERT INTO reports
-                (group_id, user_id, user_name, date, raw_text, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (group_id, user_id, user_name, date, raw_text, status,
+                 has_photo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (group_id, user_id, user_name, date, raw_text, status, _now_iso(tz)),
+            (group_id, user_id, user_name, date, raw_text, status,
+             1 if has_photo else 0, _now_iso(tz)),
         )
         await db.commit()
         return int(cur.lastrowid)
@@ -371,14 +400,17 @@ async def update_report_ai(
     missing_parts: list[str],
     has_problem: bool,
     problem_text: str,
+    done_tasks: Optional[list[str]] = None,
+    undone_tasks: Optional[list[str]] = None,
 ) -> None:
-    """Hisobotni AI tahlili natijalari bilan yangilaydi (2-bosqichda ishlatiladi)."""
+    """Hisobotni AI tahlili natijalari bilan yangilaydi."""
     async with aiosqlite.connect(_DB_PATH) as db:
         await db.execute(
             """
             UPDATE reports
             SET status = ?, ai_score = ?, ai_summary = ?, missing_parts = ?,
-                has_problem = ?, problem_text = ?
+                has_problem = ?, problem_text = ?,
+                done_tasks = ?, undone_tasks = ?
             WHERE id = ?
             """,
             (
@@ -388,6 +420,8 @@ async def update_report_ai(
                 json.dumps(missing_parts, ensure_ascii=False),
                 1 if has_problem else 0,
                 problem_text,
+                json.dumps(done_tasks or [], ensure_ascii=False),
+                json.dumps(undone_tasks or [], ensure_ascii=False),
                 report_id,
             ),
         )
