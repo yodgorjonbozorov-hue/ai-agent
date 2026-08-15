@@ -62,14 +62,22 @@ else
     : "${ANTHROPIC_API_KEY:=}"
     : "${ADMIN_ID:=5284718368}"
 
-    if [[ -z "${BOT_TOKEN}" ]]; then
-        read -rp "    BOT_TOKEN (BotFather'dan YANGI token): " BOT_TOKEN
+    # Terminal bo'lsagina so'raymiz. Skript avtomatik ishga tushirilganda
+    # (masalan Google Cloud startup-script orqali) stdin terminal emas —
+    # bunda `read` xato qaytaradi va `set -e` tufayli skript o'rtada uzilib
+    # qolardi. Shuning uchun `|| true` va terminal tekshiruvi kerak.
+    if [[ -t 0 ]]; then
+        if [[ -z "${BOT_TOKEN}" ]]; then
+            read -rp "    BOT_TOKEN (BotFather'dan olingan token): " BOT_TOKEN || true
+        fi
+        if [[ -z "${ANTHROPIC_API_KEY}" ]]; then
+            read -rp "    ANTHROPIC_API_KEY (bo'sh qoldirsangiz AI o'chadi): " ANTHROPIC_API_KEY || true
+        fi
+        read -rp "    ADMIN_ID [${ADMIN_ID}]: " _admin_in || true
+        ADMIN_ID="${_admin_in:-${ADMIN_ID}}"
+    else
+        echo "    (avtomatik rejim — qiymatlar muhit o'zgaruvchilaridan olindi)"
     fi
-    if [[ -z "${ANTHROPIC_API_KEY}" ]]; then
-        read -rp "    ANTHROPIC_API_KEY (bo'sh qoldirsangiz AI o'chadi): " ANTHROPIC_API_KEY
-    fi
-    read -rp "    ADMIN_ID [${ADMIN_ID}]: " _admin_in
-    ADMIN_ID="${_admin_in:-${ADMIN_ID}}"
 
     cat > "${ENV_FILE}" <<EOF
 BOT_TOKEN=${BOT_TOKEN}
@@ -89,7 +97,16 @@ chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 echo "==> 6/6  systemd xizmati..."
 cp "${APP_DIR}/${SERVICE_NAME}.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}"
+systemctl enable "${SERVICE_NAME}"
+
+# BOT_TOKEN bo'lmasa botni yoqmaymiz. Aks holda u har 5 soniyada qayta ishga
+# tushib, logni xato bilan to'ldiradi (Restart=always).
+if grep -q '^BOT_TOKEN=.\+$' "${ENV_FILE}"; then
+    systemctl restart "${SERVICE_NAME}"
+    TOKEN_BOR=1
+else
+    TOKEN_BOR=0
+fi
 
 echo ""
 echo "================================================================"
@@ -98,6 +115,16 @@ echo ""
 echo "  Holatni ko'rish:   systemctl status ${SERVICE_NAME}"
 echo "  Jonli log:         journalctl -u ${SERVICE_NAME} -f"
 echo ""
-echo "  Endi botni ishchi guruhlarga ADMIN sifatida qo'shing,"
-echo "  so'ng shaxsiy chatda /start yuboring."
+if [[ "${TOKEN_BOR}" -eq 1 ]]; then
+    echo "  Bot yoqildi. Endi @BotFather da Privacy Mode ni o'chiring"
+    echo "  (Bot Settings -> Group Privacy -> Turn off), so'ng botni ishchi"
+    echo "  guruhlarga ADMIN sifatida qo'shing va shaxsiy chatda /start yozing."
+else
+    echo "  DIQQAT: BOT_TOKEN kiritilmadi, shuning uchun bot hali yoqilmadi."
+    echo ""
+    echo "  Tokenni qo'shish uchun:"
+    echo "    sudo nano ${ENV_FILE}"
+    echo "    (BOT_TOKEN= qatoriga tokenni yozing, Ctrl+O, Enter, Ctrl+X)"
+    echo "    sudo systemctl start ${SERVICE_NAME}"
+fi
 echo "================================================================"

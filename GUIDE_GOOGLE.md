@@ -42,6 +42,44 @@ qo'shsa bo'ladi (pastdagi *Keyin AI ni yoqish* bo'limiga qarang).
 
 ## 2-qadam. Tekin serverni yaratish
 
+Ikkita yo'l bor. **A yo'li tavsiya etiladi** — u bitta buyruq va noto'g'ri
+o'lcham tanlab qo'yish xavfi yo'q.
+
+### A yo'li — bitta buyruq (tavsiya etiladi)
+
+1. Yuqori o'ng burchakdagi **Cloud Shell** belgisini (`>_`) bosing.
+   Brauzerda terminal ochiladi — u allaqachon sizning hisobingizga ulangan,
+   hech narsa o'rnatish shart emas.
+2. Quyidagini **butunligicha** nusxalab, Enter bosing:
+
+```bash
+gcloud services enable compute.googleapis.com
+
+gcloud compute instances create disney-bot \
+  --zone=us-central1-a \
+  --machine-type=e2-micro \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=30GB \
+  --boot-disk-type=pd-standard
+```
+
+Birinchi buyruq 1-2 daqiqa, ikkinchisi ~30 soniya ishlaydi. Tugagach server
+tayyor — va o'lchamlar aynan "Always Free" limitiga mos, ya'ni **pul
+yechilmaydi**.
+
+3. Serverga kirish (xuddi shu Cloud Shell oynasida):
+
+```bash
+gcloud compute ssh disney-bot --zone=us-central1-a
+```
+
+Birinchi marta SSH kalit yaratishni so'raydi — **Enter** bosib o'ting
+(parol so'rasa, bo'sh qoldirib yana Enter). So'ng to'g'ridan-to'g'ri
+**4-qadam** ga o'ting.
+
+### B yo'li — konsolda bosish orqali
+
 1. Yuqoridagi qidiruvga **Compute Engine** deb yozing va oching.
    (Birinchi marta **Enable** tugmasini bosishga to'g'ri keladi — 1-2 daqiqa kutadi.)
 2. **Create instance** ni bosing va **aynan** quyidagilarni tanlang:
@@ -54,6 +92,9 @@ qo'shsa bo'ladi (pastdagi *Keyin AI ni yoqish* bo'limiga qarang).
    | **Boot disk** | **Change** → **Debian 12**, **Standard**, **30 GB** | 30 dan oshirmang |
 
 3. Pastdagi **Create** ni bosing. Server ~1 daqiqada tayyor bo'ladi.
+
+> ⚠️ **Region va machine type** ni aynan yuqoridagidek tanlang. Boshqa
+> qiymatlar tekin limitga kirmaydi va oyiga pul yechiladi.
 
 > Tarmoq (firewall) sozlamalariga tegish **shart emas**. Bot faqat o'zi
 > Telegram'ga ulanadi, tashqaridan hech kim serverga kirmaydi.
