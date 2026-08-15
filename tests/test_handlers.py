@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Chat, Message, Update, User
+from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
 import database as db
 import texts
@@ -54,9 +54,16 @@ def sent(monkeypatch):
 
     async def fake_answer(self, text, **kwargs):
         yuborilgan.append(text)
+        # Haqiqiy answer() yuborilgan xabarni qaytaradi — keyin uni
+        # edit_text() bilan tahrirlash mumkin bo'lishi kerak.
+        return self
+
+    async def fake_cb_answer(self, text=None, **kwargs):
+        return True
 
     monkeypatch.setattr(Message, "answer", fake_answer, raising=False)
     monkeypatch.setattr(Message, "reply", fake_answer, raising=False)
+    monkeypatch.setattr(CallbackQuery, "answer", fake_cb_answer, raising=False)
     return yuborilgan
 
 
@@ -214,3 +221,189 @@ async def test_pauzadagi_guruhdan_hisobot_qabul_qilinmaydi(dispatcher, sent):
 
     assert sent == []
     assert await db.get_latest_report(gid, bugun) is None
+
+
+# --------------------------------------------------------------------------
+# Erkin matn bilan vazifa berish
+# --------------------------------------------------------------------------
+
+class SoxtaParser:
+    """Tarmoqqa chiqmaydigan soxta tahlilchi."""
+
+    def __init__(self, natija=None, enabled=True):
+        self.natija = natija
+        self._enabled = enabled
+        self.chaqirildi = 0
+
+    @property
+    def enabled(self):
+        return self._enabled
+
+    async def parse(self, text, groups, tz):
+        self.chaqirildi += 1
+        return self.natija
+
+
+@pytest.fixture
+def edit_matnlari(monkeypatch):
+    """`edit_text` orqali o'zgartirilgan matnlarni yig'adi."""
+    matnlar: list[str] = []
+
+    async def fake_edit(self, text, **kwargs):
+        matnlar.append(text)
+        return self
+
+    monkeypatch.setattr(Message, "edit_text", fake_edit, raising=False)
+    return matnlar
+
+
+def _callback(data: str) -> Update:
+    """Inline tugma bosilishini taqlid qiladi."""
+    xabar = Message(
+        message_id=2,
+        date=datetime.now(TZ),
+        chat=Chat(id=ADMIN_ID, type="private"),
+        from_user=User(id=0, is_bot=True, first_name="Bot"),
+        text="tasdiq",
+    )
+    return Update(
+        update_id=2,
+        callback_query=CallbackQuery(
+            id="cb1",
+            from_user=User(id=ADMIN_ID, is_bot=False, first_name="Admin"),
+            chat_instance="ci",
+            message=xabar,
+            data=data,
+        ),
+    )
+
+
+async def test_erkin_matn_tasdiq_soraydi(dispatcher, sent, edit_matnlari):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    parser = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "bir_martalik", "sana": "2026-03-11",
+            "hafta_kunlari": [], "vazifalar": ["devor suvash", "pol tayyorlash"],
+        }],
+    })
+    dp["task_parser"] = parser
+
+    await dp.feed_update(bot, _message(
+        "Qurilish guruhiga ertaga devor suvash va pol tayyorlash",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert parser.chaqirildi == 1
+    # Avval "o'qiyapman", so'ng tasdiq so'rovi
+    assert sent == [texts.TAHLIL_QILINMOQDA]
+    assert "Qurilish" in edit_matnlari[-1]
+    assert "devor suvash" in edit_matnlari[-1]
+    # Hali saqlanmagan — tasdiq kutilmoqda
+    assert await db.get_tasks(gid, "2026-03-11") == []
+
+
+async def test_tasdiqlangach_vazifalar_saqlanadi(dispatcher, sent, edit_matnlari):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [
+            {"guruh_id": gid, "tur": "bir_martalik", "sana": "2026-03-11",
+             "hafta_kunlari": [], "vazifalar": ["devor suvash"]},
+            {"guruh_id": gid, "tur": "doimiy", "sana": "2026-03-11",
+             "hafta_kunlari": [1, 2, 3, 4, 5, 6], "vazifalar": ["xavfsizlik tekshiruvi"]},
+        ],
+    })
+
+    await dp.feed_update(bot, _message(
+        "vazifalar", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlok"))
+
+    vazifalar = await db.get_tasks(gid, "2026-03-11")
+    assert [v["text"] for v in vazifalar] == ["devor suvash"]
+
+    doimiy = await db.get_recurring_tasks(gid)
+    assert len(doimiy) == 1
+    assert doimiy[0]["text"] == "xavfsizlik tekshiruvi"
+    assert doimiy[0]["weekdays"] == "1,2,3,4,5,6"
+
+
+async def test_bekor_qilinsa_saqlanmaydi(dispatcher, sent, edit_matnlari):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "bir_martalik", "sana": "2026-03-11",
+            "hafta_kunlari": [], "vazifalar": ["devor suvash"],
+        }],
+    })
+
+    await dp.feed_update(bot, _message(
+        "vazifalar", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlbekor"))
+
+    assert await db.get_tasks(gid, "2026-03-11") == []
+    assert edit_matnlari[-1] == texts.CANCELLED
+
+
+async def test_tushunarsiz_matnga_savol(dispatcher, sent, edit_matnlari):
+    dp, bot = dispatcher
+    await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": False, "savol": "Qaysi guruhga?", "topshiriqlar": [],
+    })
+
+    await dp.feed_update(bot, _message(
+        "ertaga ishlansin", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert edit_matnlari[-1] == "Qaysi guruhga?"
+
+
+async def test_ai_ochiq_bolmasa_ogohlantiradi(dispatcher, sent):
+    dp, bot = dispatcher
+    await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser(enabled=False)
+
+    await dp.feed_update(bot, _message(
+        "biror vazifa", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert sent == [texts.AI_OCHIQ_EMAS]
+
+
+async def test_begona_odamning_matni_etiborsiz(dispatcher, sent):
+    dp, bot = dispatcher
+    await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    parser = SoxtaParser({"tushunarli": True, "savol": "", "topshiriqlar": []})
+    dp["task_parser"] = parser
+
+    await dp.feed_update(bot, _message(
+        "menga ham vazifa ber", chat_id=999, chat_type="private", user_id=999))
+
+    assert sent == []
+    assert parser.chaqirildi == 0
+
+
+async def test_vazifa_komandasi_oqimi_buzilmaydi(dispatcher, sent, edit_matnlari):
+    """
+    Eng muhim tekshiruv: /vazifa oqimida yozilgan matn erkin-matn
+    tahlilchisiga emas, eski FSM handleriga tushishi kerak.
+    """
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    parser = SoxtaParser({"tushunarli": True, "savol": "", "topshiriqlar": []})
+    dp["task_parser"] = parser
+
+    await dp.feed_update(bot, _message(
+        "/vazifa", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback(f"vz:{gid}"))
+    await dp.feed_update(bot, _message(
+        "birinchi vazifa\nikkinchi vazifa",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    # Tahlilchi umuman chaqirilmagan bo'lishi kerak
+    assert parser.chaqirildi == 0
+    from services import reporter
+    vazifalar = await db.get_tasks(gid, reporter.today_str(TZ))
+    assert [v["text"] for v in vazifalar] == ["birinchi vazifa", "ikkinchi vazifa"]

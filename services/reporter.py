@@ -24,6 +24,11 @@ def today_str(tz: ZoneInfo) -> str:
     return datetime.now(tz).strftime("%Y-%m-%d")
 
 
+def today_weekday(tz: ZoneInfo) -> int:
+    """Bugungi hafta kuni: 1 = dushanba ... 7 = yakshanba (ISO)."""
+    return datetime.now(tz).isoweekday()
+
+
 def pretty_date(tz: ZoneInfo) -> str:
     """Bugungi sanani DD.MM.YYYY ko'rinishida qaytaradi (xulosa sarlavhasi uchun)."""
     return datetime.now(tz).strftime("%d.%m.%Y")

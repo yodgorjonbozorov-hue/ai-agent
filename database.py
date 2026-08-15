@@ -54,6 +54,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (group_id) REFERENCES groups (id)
 );
 
+-- Doimiy (takrorlanuvchi) vazifalar. Bir marta yoziladi, har kuni ertalab
+-- shu kunning `tasks` jadvaliga avtomatik ko'chiriladi.
+-- weekdays: ISO hafta kunlari vergul bilan (1 = dushanba ... 7 = yakshanba)
+CREATE TABLE IF NOT EXISTS recurring_tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   INTEGER NOT NULL,
+    text       TEXT NOT NULL,
+    weekdays   TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (group_id) REFERENCES groups (id)
+);
+
 CREATE TABLE IF NOT EXISTS reports (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id      INTEGER NOT NULL,
@@ -82,6 +95,7 @@ CREATE TABLE IF NOT EXISTS logs (
 CREATE INDEX IF NOT EXISTS idx_reports_group_date ON reports (group_id, date);
 CREATE INDEX IF NOT EXISTS idx_tasks_group_date  ON tasks (group_id, date);
 CREATE INDEX IF NOT EXISTS idx_logs_group_date   ON logs (group_id, date);
+CREATE INDEX IF NOT EXISTS idx_recurring_group    ON recurring_tasks (group_id);
 """
 
 
@@ -217,6 +231,105 @@ async def get_tasks(group_id: int, date: str) -> list[dict[str, Any]]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+async def add_task_if_absent(group_id: int, date: str, text: str) -> bool:
+    """
+    Vazifani faqat shu guruh/sana uchun hali mavjud bo'lmasa qo'shadi.
+    Doimiy vazifalarni ko'chirishda ishlatiladi — bot kun davomida qayta
+    ishga tushsa ham vazifalar ikki marta qo'shilmaydi.
+    Qo'shilgan bo'lsa True qaytaradi.
+    """
+    async with aiosqlite.connect(_DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM tasks WHERE group_id = ? AND date = ? AND text = ? LIMIT 1",
+            (group_id, date, text),
+        )
+        if await cur.fetchone() is not None:
+            return False
+        await db.execute(
+            "INSERT INTO tasks (group_id, date, text) VALUES (?, ?, ?)",
+            (group_id, date, text),
+        )
+        await db.commit()
+        return True
+
+
+# --------------------------------------------------------------------------
+# recurring_tasks — doimiy vazifalar
+# --------------------------------------------------------------------------
+
+def _weekdays_to_str(weekdays: Optional[list[int]]) -> str:
+    """[1,2,3] -> '1,2,3'. Bo'sh bo'lsa — har kuni."""
+    if not weekdays:
+        return "1,2,3,4,5,6,7"
+    tozalangan = sorted({int(d) for d in weekdays if 1 <= int(d) <= 7})
+    return ",".join(str(d) for d in tozalangan) or "1,2,3,4,5,6,7"
+
+
+async def add_recurring_task(
+    group_id: int,
+    text: str,
+    weekdays: Optional[list[int]] = None,
+    tz: Optional[ZoneInfo] = None,
+) -> int:
+    """Doimiy vazifa qo'shadi va uning id sini qaytaradi."""
+    async with aiosqlite.connect(_DB_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO recurring_tasks (group_id, text, weekdays, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (group_id, text, _weekdays_to_str(weekdays), _now_iso(tz)),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def get_recurring_tasks(
+    group_id: Optional[int] = None, only_active: bool = True
+) -> list[dict[str, Any]]:
+    """Doimiy vazifalarni qaytaradi (guruh bo'yicha yoki hammasini)."""
+    query = "SELECT * FROM recurring_tasks"
+    shartlar: list[str] = []
+    args: list[Any] = []
+    if group_id is not None:
+        shartlar.append("group_id = ?")
+        args.append(group_id)
+    if only_active:
+        shartlar.append("is_active = 1")
+    if shartlar:
+        query += " WHERE " + " AND ".join(shartlar)
+    query += " ORDER BY group_id, id"
+
+    async with aiosqlite.connect(_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(query, tuple(args))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def delete_recurring_task(task_id: int) -> None:
+    """Doimiy vazifani o'chiradi (butunlay)."""
+    async with aiosqlite.connect(_DB_PATH) as db:
+        await db.execute("DELETE FROM recurring_tasks WHERE id = ?", (task_id,))
+        await db.commit()
+
+
+async def apply_recurring_tasks(group_id: int, date: str, weekday: int) -> int:
+    """
+    Guruhning shu hafta kuniga tegishli doimiy vazifalarini `tasks` ga
+    ko'chiradi. Nechta yangi vazifa qo'shilganini qaytaradi.
+
+    Ertalabki xabar yuborilishidan oldin chaqiriladi, shuning uchun
+    takroriy chaqiruvga chidamli (add_task_if_absent).
+    """
+    qoshilgan = 0
+    for r in await get_recurring_tasks(group_id, only_active=True):
+        kunlar = {int(d) for d in str(r["weekdays"]).split(",") if d.strip().isdigit()}
+        if weekday in kunlar and await add_task_if_absent(group_id, date, r["text"]):
+            qoshilgan += 1
+    return qoshilgan
 
 
 # --------------------------------------------------------------------------

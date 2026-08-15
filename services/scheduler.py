@@ -161,6 +161,18 @@ class BotScheduler:
                 return
 
             date = reporter.today_str(self.settings.tz)
+
+            # Doimiy vazifalarni shu kunga ko'chiramiz (takroriy chaqiruvga
+            # chidamli — bir xil vazifa ikki marta qo'shilmaydi)
+            qoshilgan = await db.apply_recurring_tasks(
+                group_id, date, reporter.today_weekday(self.settings.tz)
+            )
+            if qoshilgan:
+                logger.info(
+                    "Guruh %d: %d ta doimiy vazifa bugunga qo'shildi",
+                    group_id, qoshilgan,
+                )
+
             tasks = await db.get_tasks(group_id, date)
 
             if tasks:

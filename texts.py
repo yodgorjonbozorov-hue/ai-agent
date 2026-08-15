@@ -134,9 +134,17 @@ def admin_escalation(missing_groups: list[str]) -> str:
 
 ADMIN_START = (
     "🤖 Disney Navoiy — Hisobot Bot\n\n"
+    "✍️ Vazifa berish uchun shunchaki oddiy gap bilan yozing, masalan:\n"
+    "«Qurilish guruhiga ertaga: devor suvash, pol tayyorlash»\n"
+    "«Ta'mirlash guruhiga har kuni xavfsizlik tekshiruvi»\n"
+    "Men tushunib, saqlashdan oldin tasdiq so'rayman.\n\n"
+    "Qolganini o'zim qilaman: har kuni ertalab vazifalarni yuboraman, "
+    "kechqurun hisobot so'rayman, eslatma beraman va 22:00 da sizga "
+    "xulosa yuboraman.\n\n"
     "Mavjud komandalar:\n"
     "/guruhlar — guruhlar ro'yxati va holati\n"
-    "/vazifa — guruhga bugungi vazifa qo'shish\n"
+    "/doimiy — doimiy (takrorlanuvchi) vazifalar\n"
+    "/vazifa — guruhga bugungi vazifa qo'shish (tugmalar bilan)\n"
     "/vaqt — guruh vaqtlarini o'zgartirish\n"
     "/hisobot — bugungi holat\n"
     "/haftalik — haftalik reyting\n"
@@ -251,6 +259,99 @@ def weekly_group_line(
         f"{medal} {name}\n"
         f"    Hisobot berish: {percent}% | O'rtacha baho: {avg_txt}"
     )
+
+
+# --------------------------------------------------------------------------
+# Erkin matn bilan vazifa berish va doimiy vazifalar
+# --------------------------------------------------------------------------
+
+_KUN_QISQA = {1: "Du", 2: "Se", 3: "Ch", 4: "Pa", 5: "Ju", 6: "Sh", 7: "Ya"}
+
+
+def kunlar_matni(kunlar: list[int]) -> str:
+    """[1,2,3,4,5,6] -> 'Du, Se, Ch, Pa, Ju, Sh' (yoki 'har kuni')."""
+    if not kunlar or sorted(kunlar) == [1, 2, 3, 4, 5, 6, 7]:
+        return "har kuni"
+    if sorted(kunlar) == [1, 2, 3, 4, 5, 6]:
+        return "ish kunlari (Du–Sh)"
+    return ", ".join(_KUN_QISQA.get(k, str(k)) for k in sorted(kunlar))
+
+
+def tasdiq_sorovi(bloklar: list[str]) -> str:
+    """Saqlashdan oldin adminga ko'rsatiladigan xulosa."""
+    return (
+        "📝 Shunday tushundim:\n\n"
+        + "\n\n".join(bloklar)
+        + "\n\nTo'g'rimi?"
+    )
+
+
+def tasdiq_bloki(
+    group_name: str,
+    tur: str,
+    sana: str,
+    kunlar: list[int],
+    vazifalar: list[str],
+) -> str:
+    """Bitta guruh uchun tasdiq matni."""
+    ro_yxat = "\n".join(f"   {i}. {v}" for i, v in enumerate(vazifalar, start=1))
+    if tur == "doimiy":
+        sarlavha = f"🔁 {group_name} — doimiy ({kunlar_matni(kunlar)})"
+    else:
+        sarlavha = f"📌 {group_name} — {sana}"
+    return f"{sarlavha}\n{ro_yxat}"
+
+
+def vazifalar_saqlandi(bir_martalik: int, doimiy: int) -> str:
+    qatorlar = []
+    if bir_martalik:
+        qatorlar.append(f"📌 {bir_martalik} ta vazifa saqlandi")
+    if doimiy:
+        qatorlar.append(f"🔁 {doimiy} ta doimiy vazifa qo'shildi")
+    if not qatorlar:
+        return "Hech narsa saqlanmadi."
+    return "✅ " + "\n✅ ".join(qatorlar)
+
+
+TASDIQLASH = "✅ Ha, to'g'ri"
+BEKOR_QILISH = "❌ Yo'q, bekor"
+TAHLIL_QILINMOQDA = "🤔 O'qiyapman..."
+TUSHUNMADIM = (
+    "Tushunmadim. Iltimos, qaysi guruhga va qanday vazifa kerakligini "
+    "aniqroq yozing.\n\n"
+    "Masalan: «Qurilish guruhiga ertaga: devor suvash, pol tayyorlash»"
+)
+AI_OCHIQ_EMAS = (
+    "Erkin matn bilan vazifa berish uchun AI kaliti kerak "
+    "(.env dagi ANTHROPIC_API_KEY).\n\n"
+    "Hozircha /vazifa komandasidan foydalaning."
+)
+
+
+def doimiy_royxat(guruh_nomi: str, vazifalar: list[dict[str, Any]]) -> str:
+    """/doimiy — bitta guruhning doimiy vazifalari."""
+    if not vazifalar:
+        return f"🔁 {guruh_nomi}: doimiy vazifa yo'q."
+    qatorlar = [
+        f"   [{v['id']}] {v['text']}  ({kunlar_matni(_kunlar_ajrat(v['weekdays']))})"
+        for v in vazifalar
+    ]
+    return f"🔁 {guruh_nomi}\n" + "\n".join(qatorlar)
+
+
+def _kunlar_ajrat(weekdays: str) -> list[int]:
+    return [int(d) for d in str(weekdays).split(",") if d.strip().isdigit()]
+
+
+DOIMIY_YOQ = (
+    "🔁 Hozircha doimiy vazifa yo'q.\n\n"
+    "Qo'shish uchun shunchaki yozing:\n"
+    "«Qurilish guruhiga har kuni xavfsizlik tekshiruvi»"
+)
+
+
+def doimiy_ochirildi(text: str) -> str:
+    return f"🗑 O'chirildi: {text}"
 
 
 # --------------------------------------------------------------------------

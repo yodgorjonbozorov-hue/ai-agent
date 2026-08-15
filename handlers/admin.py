@@ -25,7 +25,7 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -40,6 +40,7 @@ import texts
 from config import Settings
 from services import reporter
 from services.scheduler import BotScheduler
+from services.task_parser import TaskParser
 
 logger = logging.getLogger(__name__)
 
@@ -490,3 +491,174 @@ async def on_vaqt_value(
     label = texts.VAQT_FIELD_REQUEST if field == "request_time" else texts.VAQT_FIELD_MORNING
     name = (group.get("name") if group else None) or f"Guruh {gid}"
     await message.answer(texts.vaqt_updated(name, label, value))
+
+
+# --------------------------------------------------------------------------
+# /doimiy — doimiy (takrorlanuvchi) vazifalar ro'yxati
+# --------------------------------------------------------------------------
+
+@router.message(Command("doimiy"))
+async def cmd_recurring(message: Message, settings: Settings) -> None:
+    """Barcha guruhlarning doimiy vazifalarini ko'rsatadi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    try:
+        groups = await db.get_all_groups()
+        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+        hammasi = await db.get_recurring_tasks()
+        if not hammasi:
+            await message.answer(texts.DOIMIY_YOQ)
+            return
+
+        bloklar: list[str] = []
+        tugmalar: list[list[InlineKeyboardButton]] = []
+        for gid, nomi in nomlar.items():
+            guruh_vazifalari = [v for v in hammasi if int(v["group_id"]) == gid]
+            if not guruh_vazifalari:
+                continue
+            bloklar.append(texts.doimiy_royxat(nomi, guruh_vazifalari))
+            for v in guruh_vazifalari:
+                tugmalar.append([
+                    InlineKeyboardButton(
+                        text=f"🗑 [{v['id']}] {v['text'][:30]}",
+                        callback_data=f"rmrec:{v['id']}",
+                    )
+                ])
+
+        await message.answer(
+            "\n\n".join(bloklar),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=tugmalar),
+        )
+    except Exception:
+        logger.error("/doimiy xatosi", exc_info=True)
+        await message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("rmrec:"))
+async def cb_remove_recurring(callback: CallbackQuery, settings: Settings) -> None:
+    """Doimiy vazifani o'chiradi."""
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    try:
+        task_id = int(callback.data.split(":", 1)[1])
+        hammasi = await db.get_recurring_tasks()
+        matn = next((v["text"] for v in hammasi if int(v["id"]) == task_id), "")
+        await db.delete_recurring_task(task_id)
+        await callback.message.answer(texts.doimiy_ochirildi(matn or f"#{task_id}"))
+    except Exception:
+        logger.error("Doimiy vazifani o'chirishda xato", exc_info=True)
+    await callback.answer()
+
+
+# --------------------------------------------------------------------------
+# Erkin matn bilan vazifa berish
+#
+# Bu handler eng oxirida turishi SHART: u komanda bo'lmagan har qanday
+# matnni ushlaydi. Undan oldingi handlerlar (komandalar va FSM holatlari)
+# birinchi tekshiriladi.
+# --------------------------------------------------------------------------
+
+def _tasdiq_klaviaturasi() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=texts.TASDIQLASH, callback_data="nlok"),
+        InlineKeyboardButton(text=texts.BEKOR_QILISH, callback_data="nlbekor"),
+    ]])
+
+
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
+async def on_free_text(
+    message: Message,
+    settings: Settings,
+    state: FSMContext,
+    task_parser: TaskParser,
+) -> None:
+    """Admin oddiy gap bilan yozgan vazifalarni tushunadi."""
+    if not _is_admin_msg(message, settings):
+        return
+    if not task_parser.enabled:
+        await message.answer(texts.AI_OCHIQ_EMAS)
+        return
+
+    try:
+        groups = await db.get_all_groups(only_active=True)
+        if not groups:
+            await message.answer(texts.NO_GROUPS)
+            return
+
+        kutish = await message.answer(texts.TAHLIL_QILINMOQDA)
+        natija = await task_parser.parse(message.text or "", groups, settings.tz)
+
+        if natija is None or not natija["tushunarli"]:
+            savol = (natija or {}).get("savol") or ""
+            await kutish.edit_text(savol or texts.TUSHUNMADIM)
+            return
+
+        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+        bloklar = [
+            texts.tasdiq_bloki(
+                nomlar.get(t["guruh_id"], f"Guruh {t['guruh_id']}"),
+                t["tur"], t["sana"], t["hafta_kunlari"], t["vazifalar"],
+            )
+            for t in natija["topshiriqlar"]
+        ]
+        await state.update_data(nl_topshiriqlar=natija["topshiriqlar"])
+        await kutish.edit_text(
+            texts.tasdiq_sorovi(bloklar), reply_markup=_tasdiq_klaviaturasi()
+        )
+    except Exception:
+        logger.error("Erkin matnni tahlil qilishda xato", exc_info=True)
+        await message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+
+
+@router.callback_query(lambda c: c.data == "nlok")
+async def cb_confirm_tasks(
+    callback: CallbackQuery, settings: Settings, state: FSMContext
+) -> None:
+    """Tasdiqlangan vazifalarni bazaga yozadi."""
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    try:
+        data = await state.get_data()
+        topshiriqlar = data.get("nl_topshiriqlar") or []
+        if not topshiriqlar:
+            await callback.message.edit_text(texts.CANCELLED)
+            await callback.answer()
+            return
+
+        bir_martalik = 0
+        doimiy = 0
+        for t in topshiriqlar:
+            gid = int(t["guruh_id"])
+            if t["tur"] == "doimiy":
+                for v in t["vazifalar"]:
+                    await db.add_recurring_task(gid, v, t["hafta_kunlari"], settings.tz)
+                    doimiy += 1
+            else:
+                for v in t["vazifalar"]:
+                    await db.add_task(gid, t["sana"], v)
+                    bir_martalik += 1
+
+        await state.update_data(nl_topshiriqlar=None)
+        await callback.message.edit_text(
+            texts.vazifalar_saqlandi(bir_martalik, doimiy)
+        )
+    except Exception:
+        logger.error("Vazifalarni saqlashda xato", exc_info=True)
+        await callback.message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "nlbekor")
+async def cb_cancel_tasks(
+    callback: CallbackQuery, settings: Settings, state: FSMContext
+) -> None:
+    """Tahlil natijasini bekor qiladi."""
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    await state.update_data(nl_topshiriqlar=None)
+    await callback.message.edit_text(texts.CANCELLED)
+    await callback.answer()

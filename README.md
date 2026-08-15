@@ -3,7 +3,7 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** Tugallangan (1–5 bosqich). 59 ta avtomatik test o'tadi,
+> **Holat:** Tugallangan (1–6 bosqich). 90 ta avtomatik test o'tadi,
 > systemd bilan VPS'da ishga tushirishga tayyor.
 
 ## Texnologiyalar
@@ -28,13 +28,16 @@ va adminga xulosa beradigan Telegram bot.
 │   └── groups.py          # guruh xabarlari va my_chat_member
 ├── services/
 │   ├── ai_checker.py      # Claude API orqali hisobotni baholash
+│   ├── task_parser.py     # erkin matndan vazifalarni ajratish
 │   ├── scheduler.py       # kunlik jadval joblari
 │   └── reporter.py        # kunlik/haftalik xulosa tuzish
-├── tests/                 # pytest testlari (59 ta)
+├── tests/                 # pytest testlari (90 ta)
 │   ├── conftest.py        # vaqtinchalik baza fixture'lari
 │   ├── test_database.py   # CRUD va loglar
 │   ├── test_reporter.py   # kunlik xulosa, eslatma, haftalik tahlil
 │   ├── test_ai_checker.py # AI javobini o'qish va normallashtirish
+│   ├── test_task_parser.py# erkin matn tahlilini normallashtirish
+│   ├── test_recurring.py  # doimiy vazifalar
 │   ├── test_handlers.py   # handlerlar (soxta Update bilan)
 │   └── test_texts_and_scheduler.py
 ├── .github/workflows/
@@ -103,7 +106,7 @@ va adminga xulosa beradigan Telegram bot.
   - `/test_xulosa` — kunlik xulosani ko'rsatish
 
 **5-bosqich (sifat, testlar va tuzatishlar)**
-- **Test to'plami:** 59 ta pytest testi — baza CRUD, kunlik/haftalik xulosa,
+- **Test to'plami:** 90 ta pytest testi — baza CRUD, kunlik/haftalik xulosa,
   eslatma mantig'i, AI javobini o'qish va handlerlar (soxta Update orqali,
   Telegram API ga chiqmasdan).
 - **Tuzatildi — guruhda ortiqcha javob:** admin router endi faqat shaxsiy
@@ -119,6 +122,27 @@ va adminga xulosa beradigan Telegram bot.
   Test bu xatoning qaytalanishini tekshiradi.
 - **Arzonlashtirildi:** AI so'rovi `effort: low` bilan yuboriladi — bu vazifa
   oddiy tasnif, standart `high` daraja shart emas.
+
+**6-bosqich (erkin matn va doimiy vazifalar)**
+- **Erkin matn bilan vazifa berish:** admin shaxsiy chatda oddiy gap bilan
+  yozadi, bot o'zi tushunadi:
+
+  > «Qurilish guruhiga ertaga: devor suvash, pol tayyorlash»
+  > «Ta'mirlash guruhiga har kuni xavfsizlik tekshiruvi»
+
+  Model qaysi guruh, qaysi kun va qanday vazifa ekanini ajratadi. Saqlashdan
+  oldin bot xulosani ko'rsatib **tasdiq so'raydi** — noto'g'ri guruhga vazifa
+  ketib qolmasligi uchun. Eski `/vazifa` (tugmalar bilan) ham ishlayveradi.
+- **Doimiy (takrorlanuvchi) vazifalar:** bir marta yoziladi, har kuni ertalab
+  o'sha kunga avtomatik qo'shiladi. Hafta kunlarini tanlash mumkin
+  («ish kunlari» = dushanba–shanba). `/doimiy` — ro'yxatni ko'rish va
+  o'chirish.
+- **Xavfsizlik cheklovlari:** model mavjud bo'lmagan guruh id qaytarsa
+  o'sha topshiriq tashlab yuboriladi; noto'g'ri sana bugunga tushadi;
+  noto'g'ri hafta kunlari tozalanadi. Bot kun davomida qayta ishga tushsa
+  ham doimiy vazifalar ikki marta qo'shilmaydi.
+- **AI o'chiq bo'lsa:** erkin matn ishlamaydi (bot buni aytadi), lekin
+  `/vazifa` va qolgan hamma narsa ishlayveradi.
 
 ## O'rnatish (lokal test)
 
@@ -148,7 +172,7 @@ vaqtinchalik SQLite faylida ishlaydi.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest          # 59 ta test, ~5 soniya
+python -m pytest          # 90 ta test, ~6 soniya
 python -m pytest -v       # har bir test nomi bilan
 ```
 

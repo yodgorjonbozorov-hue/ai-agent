@@ -24,6 +24,7 @@ from config import load_settings, setup_logging
 from handlers import admin, groups
 from services.ai_checker import AiChecker
 from services.scheduler import BotScheduler
+from services.task_parser import TaskParser
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ async def main() -> None:
     dp["settings"] = settings
     dp["scheduler"] = scheduler
     dp["ai_checker"] = ai_checker
+    dp["task_parser"] = TaskParser(api_key=settings.anthropic_api_key)
 
     # Routerlarni ulaymiz (admin — shaxsiy chat, groups — guruhlar)
     dp.include_router(admin.router)
