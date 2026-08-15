@@ -590,12 +590,20 @@ async def on_free_text(
         kutish = await message.answer(texts.TAHLIL_QILINMOQDA)
         natija = await task_parser.parse(message.text or "", groups, settings.tz)
 
-        if natija is None or not natija["tushunarli"]:
-            savol = (natija or {}).get("savol") or ""
-            await kutish.edit_text(savol or texts.TUSHUNMADIM)
+        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+
+        # AI ga umuman ulanib bo'lmadi — bu modelning tushunmasligidan boshqa
+        # muammo, shuning uchun boshqa xabar ko'rsatamiz.
+        if natija is None:
+            await kutish.edit_text(texts.AI_ULANMADI)
             return
 
-        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+        if not natija["tushunarli"]:
+            await kutish.edit_text(
+                texts.tushunmadim(natija.get("savol") or "", list(nomlar.values()))
+            )
+            return
+
         bloklar = [
             texts.tasdiq_bloki(
                 nomlar.get(t["guruh_id"], f"Guruh {t['guruh_id']}"),

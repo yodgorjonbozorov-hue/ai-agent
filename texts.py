@@ -316,10 +316,26 @@ def vazifalar_saqlandi(bir_martalik: int, doimiy: int) -> str:
 TASDIQLASH = "✅ Ha, to'g'ri"
 BEKOR_QILISH = "❌ Yo'q, bekor"
 TAHLIL_QILINMOQDA = "🤔 O'qiyapman..."
-TUSHUNMADIM = (
-    "Tushunmadim. Iltimos, qaysi guruhga va qanday vazifa kerakligini "
-    "aniqroq yozing.\n\n"
-    "Masalan: «Qurilish guruhiga ertaga: devor suvash, pol tayyorlash»"
+def tushunmadim(savol: str, guruh_nomlari: list[str]) -> str:
+    """
+    Model tushunmaganda ko'rsatiladigan matn. Mavjud guruh nomlari ham
+    ko'rsatiladi — foydalanuvchi qanday yozishni bilib olishi uchun.
+    """
+    matn = savol or "Tushunmadim — qaysi guruh haqida gapirayotganingizni topa olmadim."
+    if guruh_nomlari:
+        ro_yxat = "\n".join(f"• {n}" for n in guruh_nomlari)
+        matn += f"\n\nMavjud guruhlar:\n{ro_yxat}"
+    matn += (
+        "\n\nMasalan: «" + (guruh_nomlari[0] if guruh_nomlari else "Qurilish")
+        + " guruhiga ertaga: devor suvash, pol tayyorlash»"
+    )
+    return matn
+
+
+AI_ULANMADI = (
+    "⚠️ Hozir AI bilan bog'lana olmadim, shuning uchun matnni tushuna olmadim.\n\n"
+    "Sabablari: internet uzilishi, API kaliti eskirgan yoki limit tugagan.\n"
+    "Vazifani hozir qo'shish uchun /vazifa komandasidan foydalaning."
 )
 AI_OCHIQ_EMAS = (
     "Erkin matn bilan vazifa berish uchun AI kaliti kerak "

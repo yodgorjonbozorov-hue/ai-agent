@@ -97,3 +97,43 @@ def test_buzuq_vaqt_standartga_tushadi():
     assert _parse_hm("kechqurun", (18, 0)) == (18, 0)
     assert _parse_hm("", (9, 0)) == (9, 0)
     assert _parse_hm(None, (9, 0)) == (9, 0)
+
+
+# --------------------------------------------------------------------------
+# Erkin matn javoblari
+# --------------------------------------------------------------------------
+
+def test_tushunmadim_guruh_nomlarini_korsatadi():
+    """Foydalanuvchi qanday yozishni bilishi uchun guruh nomlari ko'rsatiladi."""
+    matn = texts.tushunmadim("", ["Disney Kunlik Hisobot operator", "Topshiriqlar"])
+    assert "Disney Kunlik Hisobot operator" in matn
+    assert "Topshiriqlar" in matn
+
+
+def test_tushunmadim_modelning_savolini_saqlaydi():
+    matn = texts.tushunmadim("Qaysi guruhga: Topshiriqlar yoki Disney?", ["A", "B"])
+    assert matn.startswith("Qaysi guruhga: Topshiriqlar yoki Disney?")
+
+
+def test_tushunmadim_guruhsiz_ham_ishlaydi():
+    assert "Tushunmadim" in texts.tushunmadim("", [])
+
+
+def test_ai_ulanmadi_vazifa_komandasini_taklif_qiladi():
+    """AI ishlamasa, foydalanuvchi nima qilishini bilishi kerak."""
+    assert "/vazifa" in texts.AI_ULANMADI
+
+
+def test_kunlar_matni():
+    assert texts.kunlar_matni([1, 2, 3, 4, 5, 6, 7]) == "har kuni"
+    assert texts.kunlar_matni([]) == "har kuni"
+    assert texts.kunlar_matni([1, 2, 3, 4, 5, 6]) == "ish kunlari (Du–Sh)"
+    assert texts.kunlar_matni([1, 3]) == "Du, Ch"
+
+
+def test_tasdiq_bloki_doimiy_va_bir_martalik():
+    doimiy = texts.tasdiq_bloki("Qurilish", "doimiy", "", [1, 2, 3, 4, 5, 6], ["tekshiruv"])
+    assert "🔁" in doimiy and "ish kunlari" in doimiy
+
+    bir = texts.tasdiq_bloki("Qurilish", "bir_martalik", "2026-03-11", [], ["suvash"])
+    assert "📌" in bir and "2026-03-11" in bir

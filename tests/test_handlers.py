@@ -358,7 +358,22 @@ async def test_tushunarsiz_matnga_savol(dispatcher, sent, edit_matnlari):
     await dp.feed_update(bot, _message(
         "ertaga ishlansin", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
 
-    assert edit_matnlari[-1] == "Qaysi guruhga?"
+    # Modelning savoli va mavjud guruh nomlari ko'rsatiladi
+    assert "Qaysi guruhga?" in edit_matnlari[-1]
+    assert "Qurilish" in edit_matnlari[-1]
+
+
+async def test_ai_ulanmasa_alohida_xabar(dispatcher, sent, edit_matnlari):
+    """AI ishlamasa 'tushunmadim' emas, aniq sabab ko'rsatilishi kerak."""
+    dp, bot = dispatcher
+    await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser(None)   # parse() None qaytaradi
+
+    await dp.feed_update(bot, _message(
+        "Qurilish guruhiga vazifa", chat_id=ADMIN_ID, chat_type="private",
+        user_id=ADMIN_ID))
+
+    assert edit_matnlari[-1] == texts.AI_ULANMADI
 
 
 async def test_ai_ochiq_bolmasa_ogohlantiradi(dispatcher, sent):
