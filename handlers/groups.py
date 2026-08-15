@@ -3,7 +3,7 @@ groups.py — guruhlardagi hodisalarni qayta ishlash.
 
 Ikki vazifa:
   1. Bot guruhga qo'shilganda (my_chat_member) — guruhni avtomatik
-     ro'yxatga olish va adminга xabar berish.
+     ro'yxatga olish va adminga xabar berish.
   2. Guruhdan kelgan matnli xabarni hisobot sifatida qabul qilish:
      - faqat ro'yxatdagi guruhlardan;
      - so'rov (18:00) yuborilgandan keyin kelgan;
@@ -11,7 +11,7 @@ Ikki vazifa:
      Qisqa "ok", "rahmat" kabi xabarlar e'tiborsiz qoldiriladi.
 
 1-bosqichda hisobot bazaga 'pending' holatida yoziladi va oddiy tasdiq
-javobi beriladi. AI tekshiruv 2-bosqichда qo'shiladi.
+javobi beriladi. AI tekshiruv 2-bosqichda qo'shiladi.
 """
 
 from __future__ import annotations
@@ -74,27 +74,46 @@ async def on_bot_added(
             )
             logger.info("Yangi guruh ro'yxatga olindi: %s (%s)", chat.title, chat.id)
         except Exception:
-            logger.error("Guruhni ro'yxatga olishда xato (%s)", chat.id, exc_info=True)
+            logger.error("Guruhni ro'yxatga olishda xato (%s)", chat.id, exc_info=True)
 
 
-@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text)
+@router.message(
+    F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}),
+    F.text | F.photo,
+)
 async def on_group_message(
     message: Message,
     bot: Bot,
     settings: Settings,
     ai_checker: AiChecker,
 ) -> None:
-    """Guruhdagi matnli xabarni hisobot sifatida ko'rib chiqadi."""
+    """
+    Guruhdagi xabarni hisobot sifatida ko'rib chiqadi.
+
+    Matn ham, rasm ham qabul qilinadi. Rasm ko'pincha bajarilgan ishning
+    eng ishonchli dalili, shuning uchun izohi qisqa bo'lsa ham hisobot
+    hisoblanadi — aks holda ishlagan odam "hisobot bermadi" deb qolardi.
+    """
     try:
         group = await db.get_group_by_chat_id(message.chat.id)
         # Faqat ro'yxatdagi va faol guruhlar
         if not group or not group.get("is_active"):
             return
 
-        text = (message.text or "").strip()
+        # Boshqa botlarning xabarlari hisobot emas
+        if message.from_user and message.from_user.is_bot:
+            return
 
-        # Qisqa xabarlar (ok, rahmat, ...) e'tiborsiz
-        if len(text) < MIN_REPORT_LENGTH:
+        rasm_bor = bool(message.photo)
+        text = (message.text or message.caption or "").strip()
+
+        # Komandalar (/vazifa ...) hisobot sifatida saqlanmaydi
+        if text.startswith("/"):
+            return
+
+        # Rasmsiz qisqa xabarlar (ok, rahmat, ...) e'tiborsiz.
+        # Rasm bo'lsa — izoh qisqa bo'lsa ham qabul qilamiz.
+        if not rasm_bor and len(text) < MIN_REPORT_LENGTH:
             return
 
         group_id = int(group["id"])
@@ -104,7 +123,7 @@ async def on_group_message(
         request_sent = await db.has_log(group_id, date, "request")
         if not request_sent:
             logger.debug(
-                "Guruh %d: uzun xabar keldi, lekin so'rov hali yuborilmagan — o'tkazib yuborildi",
+                "Guruh %d: xabar keldi, lekin so'rov hali yuborilmagan — o'tkazib yuborildi",
                 group_id,
             )
             return
@@ -119,11 +138,20 @@ async def on_group_message(
             user_id=user_id,
             user_name=user_name,
             date=date,
-            raw_text=text,
+            raw_text=text or texts.RASM_IZOHSIZ,
             status="pending",
+            has_photo=rasm_bor,
             tz=settings.tz,
         )
-        logger.info("Hisobot saqlandi: guruh %d, foydalanuvchi %s", group_id, user_name)
+        logger.info(
+            "Hisobot saqlandi: guruh %d, foydalanuvchi %s%s",
+            group_id, user_name, " (rasm bilan)" if rasm_bor else "",
+        )
+
+        # Izoh juda qisqa bo'lsa AI ni bezovta qilmaymiz — baholaydigan matn yo'q
+        if len(text) < MIN_REPORT_LENGTH:
+            await message.reply(texts.RASM_QABUL_QILINDI)
+            return
 
         # AI tekshiruvi (agar yoqilgan bo'lsa)
         tasks = await db.get_tasks(group_id, date)
@@ -144,6 +172,8 @@ async def on_group_message(
             missing_parts=result["yetishmagan"],
             has_problem=result["muammo_bormi"],
             problem_text=result["muammo_qisqacha"],
+            done_tasks=result["bajarilgan"],
+            undone_tasks=result["bajarilmagan"],
         )
 
         # Guruhga javob
@@ -152,7 +182,7 @@ async def on_group_message(
         else:
             await message.reply(texts.report_incomplete(result["yetishmagan"]))
 
-        # Muammo bo'lsa — adminга darhol alohida xabar
+        # Muammo bo'lsa — adminga darhol alohida xabar
         if result["muammo_bormi"]:
             try:
                 await bot.send_message(
@@ -163,6 +193,6 @@ async def on_group_message(
                     ),
                 )
             except Exception:
-                logger.error("Adminга muammo xabarini yuborishda xato", exc_info=True)
+                logger.error("Adminga muammo xabarini yuborishda xato", exc_info=True)
     except Exception:
         logger.error("Guruh xabarini qayta ishlashda xato", exc_info=True)

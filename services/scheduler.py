@@ -28,6 +28,11 @@ from services import reporter
 
 logger = logging.getLogger(__name__)
 
+# Job belgilangan vaqtda ishga tusha olmasa (bot qayta ishga tushayotgan yoki
+# band bo'lsa), APScheduler standart holatda uni butunlay tashlab yuboradi.
+# 5 daqiqalik "kechikish ruxsati" kunlik xabarlar yo'qolmasligini ta'minlaydi.
+MISFIRE_GRACE = 300
+
 
 def _parse_hm(value: str, default: tuple[int, int]) -> tuple[int, int]:
     """'18:00' -> (18, 0). Xato bo'lsa default qaytaradi."""
@@ -63,13 +68,15 @@ class BotScheduler:
             CronTrigger(hour=18, minute=30, timezone=tz),
             id="reminder_soft",
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
-        # 20:00 — 2-eslatma + adminга eskalatsiya
+        # 20:00 — 2-eslatma + adminga eskalatsiya
         self.scheduler.add_job(
             self._send_reminders_firm,
             CronTrigger(hour=20, minute=0, timezone=tz),
             id="reminder_firm",
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
         # 22:00 — kunlik xulosa adminga
         self.scheduler.add_job(
@@ -77,6 +84,7 @@ class BotScheduler:
             CronTrigger(hour=22, minute=0, timezone=tz),
             id="daily_summary",
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
         # Shanba 20:00 — haftalik tahlil adminga
         self.scheduler.add_job(
@@ -84,6 +92,7 @@ class BotScheduler:
             CronTrigger(day_of_week="sat", hour=20, minute=0, timezone=tz),
             id="weekly",
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
 
         self.scheduler.start()
@@ -113,6 +122,7 @@ class BotScheduler:
             id=f"morning_{gid}",
             args=[gid],
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
         self.scheduler.add_job(
             self._send_request,
@@ -120,6 +130,7 @@ class BotScheduler:
             id=f"request_{gid}",
             args=[gid],
             replace_existing=True,
+            misfire_grace_time=MISFIRE_GRACE,
         )
         logger.info(
             "Guruh %d rejalashtirildi: ertalab %02d:%02d, so'rov %02d:%02d",
@@ -150,6 +161,18 @@ class BotScheduler:
                 return
 
             date = reporter.today_str(self.settings.tz)
+
+            # Doimiy vazifalarni shu kunga ko'chiramiz (takroriy chaqiruvga
+            # chidamli — bir xil vazifa ikki marta qo'shilmaydi)
+            qoshilgan = await db.apply_recurring_tasks(
+                group_id, date, reporter.today_weekday(self.settings.tz)
+            )
+            if qoshilgan:
+                logger.info(
+                    "Guruh %d: %d ta doimiy vazifa bugunga qo'shildi",
+                    group_id, qoshilgan,
+                )
+
             tasks = await db.get_tasks(group_id, date)
 
             if tasks:
@@ -193,7 +216,7 @@ class BotScheduler:
             logger.error("1-eslatma umumiy xatosi", exc_info=True)
 
     async def _send_reminders_firm(self) -> None:
-        """20:00 — takroriy eslatma guruhlarga + adminга eskalatsiya."""
+        """20:00 — takroriy eslatma guruhlarga + adminga eskalatsiya."""
         try:
             date = reporter.today_str(self.settings.tz)
             missing = await reporter.missing_groups_today(self.settings.tz)
@@ -205,7 +228,7 @@ class BotScheduler:
                 except Exception:
                     logger.error("2-eslatma xatosi (guruh %s)", g.get("id"), exc_info=True)
 
-            # Adminга javob bermaganlar ro'yxati
+            # Adminga javob bermaganlar ro'yxati
             names = [g.get("name") or f"Guruh {g['id']}" for g in missing]
             if names:
                 await self.bot.send_message(

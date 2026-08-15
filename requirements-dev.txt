@@ -1,0 +1,7 @@
+# Faqat ishlab chiqish va testlar uchun (serverda kerak emas).
+# O'rnatish:  pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.1            # test freymvorki
+pytest-asyncio==1.4.0    # asinxron testlar (pytest.ini da asyncio_mode = auto)

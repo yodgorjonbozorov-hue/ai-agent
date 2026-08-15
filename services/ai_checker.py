@@ -47,7 +47,9 @@ SYSTEM_PROMPT = (
     '  "muammo_bormi": false,\n'
     '  "muammo_qisqacha": "",\n'
     '  "baho": 4,\n'
-    '  "qisqa_xulosa": "3 ta obyekt yakunlandi, 1 tasi kechikdi"\n'
+    '  "qisqa_xulosa": "3 ta obyekt yakunlandi, 1 tasi kechikdi",\n'
+    '  "bajarilgan": ["devor suvash"],\n'
+    '  "bajarilmagan": ["elektr chizmasini tekshirish"]\n'
     "}\n\n"
     "Qoidalar:\n"
     "- toliq: 4 bo'lim ham mazmunli to'ldirilgan bo'lsa true;\n"
@@ -55,7 +57,12 @@ SYSTEM_PROMPT = (
     "- muammo_bormi: hisobotda hal qilinishi kerak bo'lgan jiddiy muammo/to'siq bo'lsa true;\n"
     "- muammo_qisqacha: muammo qisqacha (muammo bo'lmasa bo'sh matn);\n"
     "- baho: 1 dan 5 gacha butun son;\n"
-    "- qisqa_xulosa: hisobotning bir jumlalik xulosasi."
+    "- qisqa_xulosa: hisobotning bir jumlalik xulosasi;\n"
+    "- bajarilgan / bajarilmagan: yuqorida berilgan BUGUNGI VAZIFALAR "
+    "ro'yxatidan qaysilari hisobotda bajarilgan deb aytilgan va qaysilari "
+    "aytilmagan. Vazifa matnini O'ZGARTIRMASDAN, berilganidek ko'chirib yoz. "
+    "Hisobotda vazifa haqida umuman gap bo'lmasa — u bajarilmagan hisoblanadi. "
+    "Bugunga vazifa belgilanmagan bo'lsa ikkala ro'yxat ham bo'sh bo'ladi."
 )
 
 
@@ -83,6 +90,13 @@ def _extract_json(text: str) -> Optional[dict[str, Any]]:
         return None
 
 
+def _matn_royxati(qiymat: Any) -> list[str]:
+    """Model qaytargan ro'yxatni xavfsiz matnlar ro'yxatiga keltiradi."""
+    if not isinstance(qiymat, list):
+        return []
+    return [str(x).strip() for x in qiymat if str(x).strip()]
+
+
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     """AI natijasini xavfsiz, kutilgan turlarga keltiradi."""
     yetishmagan = data.get("yetishmagan", [])
@@ -103,6 +117,8 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
         "muammo_qisqacha": str(data.get("muammo_qisqacha", "") or ""),
         "baho": baho,
         "qisqa_xulosa": str(data.get("qisqa_xulosa", "") or ""),
+        "bajarilgan": _matn_royxati(data.get("bajarilgan")),
+        "bajarilmagan": _matn_royxati(data.get("bajarilmagan")),
     }
 
 
@@ -150,6 +166,9 @@ class AiChecker:
                 max_tokens=1024,
                 system=SYSTEM_PROMPT,
                 thinking={"type": "disabled"},  # oddiy tasnif — fikrlash shart emas
+                # Model standart holatda "high" darajada ishlaydi; bu vazifa uchun
+                # "low" yetarli va sezilarli darajada arzon/tez.
+                output_config={"effort": "low"},
                 messages=[{"role": "user", "content": user_message}],
             )
         except anthropic.APITimeoutError:

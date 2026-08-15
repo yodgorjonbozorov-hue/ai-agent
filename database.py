@@ -20,7 +20,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-# Baza yo'li config'dan init_db chaqirilганda beriladi
+# Baza yo'li config'dan init_db chaqirilganda beriladi
 _DB_PATH: str = "data/bot.db"
 
 
@@ -54,6 +54,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (group_id) REFERENCES groups (id)
 );
 
+-- Doimiy (takrorlanuvchi) vazifalar. Bir marta yoziladi, har kuni ertalab
+-- shu kunning `tasks` jadvaliga avtomatik ko'chiriladi.
+-- weekdays: ISO hafta kunlari vergul bilan (1 = dushanba ... 7 = yakshanba)
+CREATE TABLE IF NOT EXISTS recurring_tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   INTEGER NOT NULL,
+    text       TEXT NOT NULL,
+    weekdays   TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (group_id) REFERENCES groups (id)
+);
+
 CREATE TABLE IF NOT EXISTS reports (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id      INTEGER NOT NULL,
@@ -67,6 +80,9 @@ CREATE TABLE IF NOT EXISTS reports (
     missing_parts TEXT,
     has_problem   INTEGER NOT NULL DEFAULT 0,
     problem_text  TEXT,
+    done_tasks    TEXT,
+    undone_tasks  TEXT,
+    has_photo     INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL,
     FOREIGN KEY (group_id) REFERENCES groups (id)
 );
@@ -82,14 +98,38 @@ CREATE TABLE IF NOT EXISTS logs (
 CREATE INDEX IF NOT EXISTS idx_reports_group_date ON reports (group_id, date);
 CREATE INDEX IF NOT EXISTS idx_tasks_group_date  ON tasks (group_id, date);
 CREATE INDEX IF NOT EXISTS idx_logs_group_date   ON logs (group_id, date);
+CREATE INDEX IF NOT EXISTS idx_recurring_group    ON recurring_tasks (group_id);
 """
 
 
+# Keyingi bosqichlarda qo'shilgan ustunlar.
+# CREATE TABLE IF NOT EXISTS ishlab turgan bazaga yangi ustun qo'shmaydi,
+# shuning uchun ularni alohida tekshirib qo'shamiz. Bu mavjud ma'lumotga
+# tegmaydi.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    # (jadval, ustun, ta'rif)
+    ("reports", "done_tasks", "TEXT"),      # bajarilgan vazifalar (JSON)
+    ("reports", "undone_tasks", "TEXT"),    # bajarilmagan vazifalar (JSON)
+    ("reports", "has_photo", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
+async def _apply_migrations(db: aiosqlite.Connection) -> None:
+    """Yetishmayotgan ustunlarni qo'shadi (ishlab turgan baza uchun)."""
+    for jadval, ustun, tarif in _MIGRATIONS:
+        cur = await db.execute(f"PRAGMA table_info({jadval})")
+        mavjud = {row[1] for row in await cur.fetchall()}
+        if ustun not in mavjud:
+            await db.execute(f"ALTER TABLE {jadval} ADD COLUMN {ustun} {tarif}")
+            logger.info("Bazaga ustun qo'shildi: %s.%s", jadval, ustun)
+
+
 async def init_db(db_path: str) -> None:
-    """Bazani yaratadi va sxemani qo'llaydi."""
+    """Bazani yaratadi, sxemani qo'llaydi va yetishmayotgan ustunlarni qo'shadi."""
     set_db_path(db_path)
     async with aiosqlite.connect(_DB_PATH) as db:
         await db.executescript(_SCHEMA)
+        await _apply_migrations(db)
         await db.commit()
     logger.info("Baza tayyor: %s", _DB_PATH)
 
@@ -219,6 +259,105 @@ async def get_tasks(group_id: int, date: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+async def add_task_if_absent(group_id: int, date: str, text: str) -> bool:
+    """
+    Vazifani faqat shu guruh/sana uchun hali mavjud bo'lmasa qo'shadi.
+    Doimiy vazifalarni ko'chirishda ishlatiladi — bot kun davomida qayta
+    ishga tushsa ham vazifalar ikki marta qo'shilmaydi.
+    Qo'shilgan bo'lsa True qaytaradi.
+    """
+    async with aiosqlite.connect(_DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM tasks WHERE group_id = ? AND date = ? AND text = ? LIMIT 1",
+            (group_id, date, text),
+        )
+        if await cur.fetchone() is not None:
+            return False
+        await db.execute(
+            "INSERT INTO tasks (group_id, date, text) VALUES (?, ?, ?)",
+            (group_id, date, text),
+        )
+        await db.commit()
+        return True
+
+
+# --------------------------------------------------------------------------
+# recurring_tasks — doimiy vazifalar
+# --------------------------------------------------------------------------
+
+def _weekdays_to_str(weekdays: Optional[list[int]]) -> str:
+    """[1,2,3] -> '1,2,3'. Bo'sh bo'lsa — har kuni."""
+    if not weekdays:
+        return "1,2,3,4,5,6,7"
+    tozalangan = sorted({int(d) for d in weekdays if 1 <= int(d) <= 7})
+    return ",".join(str(d) for d in tozalangan) or "1,2,3,4,5,6,7"
+
+
+async def add_recurring_task(
+    group_id: int,
+    text: str,
+    weekdays: Optional[list[int]] = None,
+    tz: Optional[ZoneInfo] = None,
+) -> int:
+    """Doimiy vazifa qo'shadi va uning id sini qaytaradi."""
+    async with aiosqlite.connect(_DB_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO recurring_tasks (group_id, text, weekdays, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (group_id, text, _weekdays_to_str(weekdays), _now_iso(tz)),
+        )
+        await db.commit()
+        return int(cur.lastrowid)
+
+
+async def get_recurring_tasks(
+    group_id: Optional[int] = None, only_active: bool = True
+) -> list[dict[str, Any]]:
+    """Doimiy vazifalarni qaytaradi (guruh bo'yicha yoki hammasini)."""
+    query = "SELECT * FROM recurring_tasks"
+    shartlar: list[str] = []
+    args: list[Any] = []
+    if group_id is not None:
+        shartlar.append("group_id = ?")
+        args.append(group_id)
+    if only_active:
+        shartlar.append("is_active = 1")
+    if shartlar:
+        query += " WHERE " + " AND ".join(shartlar)
+    query += " ORDER BY group_id, id"
+
+    async with aiosqlite.connect(_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(query, tuple(args))
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def delete_recurring_task(task_id: int) -> None:
+    """Doimiy vazifani o'chiradi (butunlay)."""
+    async with aiosqlite.connect(_DB_PATH) as db:
+        await db.execute("DELETE FROM recurring_tasks WHERE id = ?", (task_id,))
+        await db.commit()
+
+
+async def apply_recurring_tasks(group_id: int, date: str, weekday: int) -> int:
+    """
+    Guruhning shu hafta kuniga tegishli doimiy vazifalarini `tasks` ga
+    ko'chiradi. Nechta yangi vazifa qo'shilganini qaytaradi.
+
+    Ertalabki xabar yuborilishidan oldin chaqiriladi, shuning uchun
+    takroriy chaqiruvga chidamli (add_task_if_absent).
+    """
+    qoshilgan = 0
+    for r in await get_recurring_tasks(group_id, only_active=True):
+        kunlar = {int(d) for d in str(r["weekdays"]).split(",") if d.strip().isdigit()}
+        if weekday in kunlar and await add_task_if_absent(group_id, date, r["text"]):
+            qoshilgan += 1
+    return qoshilgan
+
+
 # --------------------------------------------------------------------------
 # reports — CRUD
 # --------------------------------------------------------------------------
@@ -230,6 +369,7 @@ async def add_report(
     date: str,
     raw_text: str,
     status: str = "pending",
+    has_photo: bool = False,
     tz: Optional[ZoneInfo] = None,
 ) -> int:
     """
@@ -241,10 +381,12 @@ async def add_report(
         cur = await db.execute(
             """
             INSERT INTO reports
-                (group_id, user_id, user_name, date, raw_text, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (group_id, user_id, user_name, date, raw_text, status,
+                 has_photo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (group_id, user_id, user_name, date, raw_text, status, _now_iso(tz)),
+            (group_id, user_id, user_name, date, raw_text, status,
+             1 if has_photo else 0, _now_iso(tz)),
         )
         await db.commit()
         return int(cur.lastrowid)
@@ -258,14 +400,17 @@ async def update_report_ai(
     missing_parts: list[str],
     has_problem: bool,
     problem_text: str,
+    done_tasks: Optional[list[str]] = None,
+    undone_tasks: Optional[list[str]] = None,
 ) -> None:
-    """Hisobotni AI tahlili natijalari bilan yangilaydi (2-bosqichda ishlatiladi)."""
+    """Hisobotni AI tahlili natijalari bilan yangilaydi."""
     async with aiosqlite.connect(_DB_PATH) as db:
         await db.execute(
             """
             UPDATE reports
             SET status = ?, ai_score = ?, ai_summary = ?, missing_parts = ?,
-                has_problem = ?, problem_text = ?
+                has_problem = ?, problem_text = ?,
+                done_tasks = ?, undone_tasks = ?
             WHERE id = ?
             """,
             (
@@ -275,6 +420,8 @@ async def update_report_ai(
                 json.dumps(missing_parts, ensure_ascii=False),
                 1 if has_problem else 0,
                 problem_text,
+                json.dumps(done_tasks or [], ensure_ascii=False),
+                json.dumps(undone_tasks or [], ensure_ascii=False),
                 report_id,
             ),
         )
@@ -377,8 +524,8 @@ async def get_log_dates_range(
     start_date: str, end_date: str, log_type: str
 ) -> list[tuple[int, str]]:
     """
-    Oraliqда berilgan turdagi loglarning (group_id, date) juftliklarini
-    qaytaradi. Haftalik tahlilда 'so'rov yuborilgan kunlar' sonini
+    Oraliqda berilgan turdagi loglarning (group_id, date) juftliklarini
+    qaytaradi. Haftalik tahlilda 'so'rov yuborilgan kunlar' sonini
     hisoblash uchun ishlatiladi.
     """
     async with aiosqlite.connect(_DB_PATH) as db:

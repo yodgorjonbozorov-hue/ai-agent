@@ -1,0 +1,33 @@
+# Har bir push va pull request'da testlarni ishga tushiradi.
+# Testlar tarmoqqa chiqmaydi va sir (token, API kalit) talab qilmaydi.
+
+name: Testlar
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodni olish
+        uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Bog'liqliklarni o'rnatish
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Testlar
+        run: python -m pytest -q

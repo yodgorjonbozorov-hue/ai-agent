@@ -23,9 +23,9 @@ import logging
 import re
 from typing import Any
 
-from aiogram import Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -40,10 +40,17 @@ import texts
 from config import Settings
 from services import reporter
 from services.scheduler import BotScheduler
+from services.assistant import Assistant
+from services.task_parser import TaskParser
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
+
+# Admin komandalari faqat shaxsiy chatda ishlaydi. Bu filtrsiz guruhda
+# yozilgan /start ga bot "faqat admin uchun" deb javob berib, guruhni
+# keraksiz xabar bilan to'ldirardi.
+router.message.filter(F.chat.type == ChatType.PRIVATE)
 
 # HH:MM formatini tekshirish uchun shablon
 _TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -69,7 +76,7 @@ class VaqtSG(StatesGroup):
 # --------------------------------------------------------------------------
 
 def _is_admin_msg(message: Message, settings: Settings) -> bool:
-    """Xabar admindan, shaxsiy chatдан kelganini tekshiradi."""
+    """Xabar admindan, shaxsiy chatdan kelganini tekshiradi."""
     if message.chat.type != ChatType.PRIVATE:
         return False
     return bool(message.from_user and message.from_user.id == settings.admin_id)
@@ -195,7 +202,7 @@ async def cmd_debug(message: Message, settings: Settings) -> None:
 async def cmd_test_weekly(
     message: Message, settings: Settings, scheduler: BotScheduler
 ) -> None:
-    """Haftalik tahlilni adminга yuborish yo'lini sinaydi."""
+    """Haftalik tahlilni adminga yuborish yo'lini sinaydi."""
     if not _is_admin_msg(message, settings):
         await message.answer(texts.NOT_ADMIN)
         return
@@ -382,9 +389,9 @@ async def cb_vazifa_group(
 
 @router.message(VazifaSG.text)
 async def on_vazifa_text(
-    message: Message, settings: Settings, state: FSMContext
+    message: Message, bot: Bot, settings: Settings, state: FSMContext
 ) -> None:
-    """Vazifa matnini qabul qilib bazaga yozadi."""
+    """Vazifa matnini qabul qilib bazaga yozadi va guruhga darhol yuboradi."""
     if not _is_admin_msg(message, settings):
         return
     data = await state.get_data()
@@ -393,13 +400,26 @@ async def on_vazifa_text(
 
     # Har bir bo'sh bo'lmagan qatorni alohida vazifa deb qabul qilamiz
     lines = [ln.strip() for ln in (message.text or "").splitlines() if ln.strip()]
-    for line in lines:
-        await db.add_task(gid, date, line)
+    yangilar = [ln for ln in lines if await db.add_task_if_absent(gid, date, ln)]
 
     await state.clear()
     group = await db.get_group_by_id(gid)
-    name = group.get("name") if group else f"Guruh {gid}"
-    await message.answer(texts.vazifa_added(name or f"Guruh {gid}", len(lines)))
+    name = (group.get("name") if group else None) or f"Guruh {gid}"
+    javob = texts.vazifa_added(name, len(lines))
+
+    # Vazifa bugunga qo'shildi — guruh ertalabgacha kutmasligi kerak
+    if yangilar and group and group.get("is_active"):
+        try:
+            await bot.send_message(
+                group["chat_id"], texts.yangi_vazifalar_guruhga(yangilar)
+            )
+            javob += f"\n\n📤 Guruhga hozir yuborildi."
+        except Exception:
+            logger.error("Guruhga vazifa yuborishda xato (guruh %d)", gid,
+                         exc_info=True)
+            javob += texts.GURUHGA_YUBORILMADI
+
+    await message.answer(javob)
 
 
 # --------------------------------------------------------------------------
@@ -468,7 +488,7 @@ async def on_vaqt_value(
     raw = (message.text or "").strip()
     match = _TIME_RE.match(raw)
     if not match:
-        await message.answer(texts.VAQT_INVALID)  # holatдa qolamiz, qayta urinsin
+        await message.answer(texts.VAQT_INVALID)  # holatda qolamiz, qayta urinsin
         return
 
     value = f"{int(match.group(1)):02d}:{match.group(2)}"  # HH:MM normallash
@@ -485,3 +505,239 @@ async def on_vaqt_value(
     label = texts.VAQT_FIELD_REQUEST if field == "request_time" else texts.VAQT_FIELD_MORNING
     name = (group.get("name") if group else None) or f"Guruh {gid}"
     await message.answer(texts.vaqt_updated(name, label, value))
+
+
+# --------------------------------------------------------------------------
+# /doimiy — doimiy (takrorlanuvchi) vazifalar ro'yxati
+# --------------------------------------------------------------------------
+
+@router.message(Command("doimiy"))
+async def cmd_recurring(message: Message, settings: Settings) -> None:
+    """Barcha guruhlarning doimiy vazifalarini ko'rsatadi."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    try:
+        groups = await db.get_all_groups()
+        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+        hammasi = await db.get_recurring_tasks()
+        if not hammasi:
+            await message.answer(texts.DOIMIY_YOQ)
+            return
+
+        bloklar: list[str] = []
+        tugmalar: list[list[InlineKeyboardButton]] = []
+        for gid, nomi in nomlar.items():
+            guruh_vazifalari = [v for v in hammasi if int(v["group_id"]) == gid]
+            if not guruh_vazifalari:
+                continue
+            bloklar.append(texts.doimiy_royxat(nomi, guruh_vazifalari))
+            for v in guruh_vazifalari:
+                tugmalar.append([
+                    InlineKeyboardButton(
+                        text=f"🗑 [{v['id']}] {v['text'][:30]}",
+                        callback_data=f"rmrec:{v['id']}",
+                    )
+                ])
+
+        await message.answer(
+            "\n\n".join(bloklar),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=tugmalar),
+        )
+    except Exception:
+        logger.error("/doimiy xatosi", exc_info=True)
+        await message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("rmrec:"))
+async def cb_remove_recurring(callback: CallbackQuery, settings: Settings) -> None:
+    """Doimiy vazifani o'chiradi."""
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    try:
+        task_id = int(callback.data.split(":", 1)[1])
+        hammasi = await db.get_recurring_tasks()
+        matn = next((v["text"] for v in hammasi if int(v["id"]) == task_id), "")
+        await db.delete_recurring_task(task_id)
+        await callback.message.answer(texts.doimiy_ochirildi(matn or f"#{task_id}"))
+    except Exception:
+        logger.error("Doimiy vazifani o'chirishda xato", exc_info=True)
+    await callback.answer()
+
+
+# --------------------------------------------------------------------------
+# Erkin matn bilan vazifa berish
+#
+# Bu handler eng oxirida turishi SHART: u komanda bo'lmagan har qanday
+# matnni ushlaydi. Undan oldingi handlerlar (komandalar va FSM holatlari)
+# birinchi tekshiriladi.
+# --------------------------------------------------------------------------
+
+def _tasdiq_klaviaturasi() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=texts.TASDIQLASH, callback_data="nlok"),
+        InlineKeyboardButton(text=texts.BEKOR_QILISH, callback_data="nlbekor"),
+    ]])
+
+
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
+async def on_free_text(
+    message: Message,
+    settings: Settings,
+    state: FSMContext,
+    task_parser: TaskParser,
+    assistant: Assistant,
+) -> None:
+    """
+    Admin oddiy gap bilan yozganini tushunadi.
+
+    Ikki xil bo'lishi mumkin:
+      - vazifa berish -> tasdiq so'raladi va saqlanadi
+      - savol         -> bazadagi ma'lumot asosida javob beriladi
+    """
+    if not _is_admin_msg(message, settings):
+        return
+    if not task_parser.enabled:
+        await message.answer(texts.AI_OCHIQ_EMAS)
+        return
+
+    try:
+        groups = await db.get_all_groups(only_active=True)
+        if not groups:
+            await message.answer(texts.NO_GROUPS)
+            return
+
+        kutish = await message.answer(texts.TAHLIL_QILINMOQDA)
+        natija = await task_parser.parse(message.text or "", groups, settings.tz)
+
+        nomlar = {int(g["id"]): (g.get("name") or f"Guruh {g['id']}") for g in groups}
+
+        # AI ga umuman ulanib bo'lmadi — bu modelning tushunmasligidan boshqa
+        # muammo, shuning uchun boshqa xabar ko'rsatamiz.
+        if natija is None:
+            await kutish.edit_text(texts.AI_ULANMADI)
+            return
+
+        # Savol berilgan — vazifa emas
+        if natija.get("niyat") == "savol":
+            kontekst = await reporter.build_assistant_context(settings.tz)
+            javob = await assistant.answer(message.text or "", kontekst)
+            await kutish.edit_text(javob or texts.SAVOLGA_JAVOB_YOQ)
+            return
+
+        if not natija["tushunarli"]:
+            await kutish.edit_text(
+                texts.tushunmadim(natija.get("savol") or "", list(nomlar.values()))
+            )
+            return
+
+        bloklar = [
+            texts.tasdiq_bloki(
+                nomlar.get(t["guruh_id"], f"Guruh {t['guruh_id']}"),
+                t["tur"], t["sana"], t["hafta_kunlari"], t["vazifalar"],
+            )
+            for t in natija["topshiriqlar"]
+        ]
+        await state.update_data(nl_topshiriqlar=natija["topshiriqlar"])
+        await kutish.edit_text(
+            texts.tasdiq_sorovi(bloklar), reply_markup=_tasdiq_klaviaturasi()
+        )
+    except Exception:
+        logger.error("Erkin matnni tahlil qilishda xato", exc_info=True)
+        await message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+
+
+@router.callback_query(lambda c: c.data == "nlok")
+async def cb_confirm_tasks(
+    callback: CallbackQuery, bot: Bot, settings: Settings, state: FSMContext
+) -> None:
+    """
+    Tasdiqlangan vazifalarni bazaga yozadi.
+
+    Bugunga tegishli vazifalar guruhga DARHOL yuboriladi — admin vazifa
+    berganda guruh buni ertalabgacha kutmasligi kerak. Kelajakdagi kunlar
+    va doimiy vazifalar o'z kunida ertalabki xabarga tushadi.
+    """
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    try:
+        data = await state.get_data()
+        topshiriqlar = data.get("nl_topshiriqlar") or []
+        if not topshiriqlar:
+            await callback.message.edit_text(texts.CANCELLED)
+            await callback.answer()
+            return
+
+        bugun = reporter.today_str(settings.tz)
+        bugungi_kun = reporter.today_weekday(settings.tz)
+
+        bir_martalik = 0
+        doimiy = 0
+        ertalabga = 0
+        # guruh id -> bugun uchun yangi qo'shilgan vazifalar
+        bugungi: dict[int, list[str]] = {}
+
+        for t in topshiriqlar:
+            gid = int(t["guruh_id"])
+            if t["tur"] == "doimiy":
+                kunlar = t["hafta_kunlari"] or [1, 2, 3, 4, 5, 6, 7]
+                for v in t["vazifalar"]:
+                    await db.add_recurring_task(gid, v, kunlar, settings.tz)
+                    doimiy += 1
+                    # Bugun ham shu kunlar ichida bo'lsa — kutib o'tirmaymiz
+                    if bugungi_kun in kunlar:
+                        if await db.add_task_if_absent(gid, bugun, v):
+                            bugungi.setdefault(gid, []).append(v)
+                    else:
+                        ertalabga += 1
+            else:
+                for v in t["vazifalar"]:
+                    bir_martalik += 1
+                    if t["sana"] == bugun:
+                        if await db.add_task_if_absent(gid, bugun, v):
+                            bugungi.setdefault(gid, []).append(v)
+                    else:
+                        await db.add_task(gid, t["sana"], v)
+                        ertalabga += 1
+
+        # Bugungi vazifalarni guruhlarga yuboramiz
+        yuborilgan: list[str] = []
+        xatolik = False
+        for gid, vazifalar in bugungi.items():
+            group = await db.get_group_by_id(gid)
+            if not group or not group.get("is_active"):
+                continue
+            try:
+                await bot.send_message(
+                    group["chat_id"], texts.yangi_vazifalar_guruhga(vazifalar)
+                )
+                yuborilgan.append(group.get("name") or f"Guruh {gid}")
+            except Exception:
+                xatolik = True
+                logger.error("Guruhga vazifa yuborishda xato (guruh %d)", gid,
+                             exc_info=True)
+
+        await state.update_data(nl_topshiriqlar=None)
+        javob = texts.vazifalar_saqlandi(bir_martalik, doimiy, yuborilgan, ertalabga)
+        if xatolik:
+            javob += texts.GURUHGA_YUBORILMADI
+        await callback.message.edit_text(javob)
+    except Exception:
+        logger.error("Vazifalarni saqlashda xato", exc_info=True)
+        await callback.message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "nlbekor")
+async def cb_cancel_tasks(
+    callback: CallbackQuery, settings: Settings, state: FSMContext
+) -> None:
+    """Tahlil natijasini bekor qiladi."""
+    if not _is_admin_cb(callback, settings):
+        await callback.answer()
+        return
+    await state.update_data(nl_topshiriqlar=None)
+    await callback.message.edit_text(texts.CANCELLED)
+    await callback.answer()
