@@ -244,13 +244,36 @@ sudo -u disney .venv/bin/pip install -r requirements.txt
 sudo systemctl restart disney-bot
 ```
 
+## ⚠️ ENG MUHIM QADAM — Privacy Mode ni o'chirish
+
+Telegram botlari standart holatda guruhdagi **hamma xabarni ko'rmaydi** — faqat
+komandalar va o'ziga javob berilgan xabarlarni ko'radi. Bu sozlama yoqiq
+qolsa, xodimlar yozgan hisobotlar botga umuman yetib bormaydi: bot xabar
+yuboradi, lekin javoblarni "eshitmaydi" va har kuni "hisobot yo'q" deb
+xulosa beradi.
+
+Shuning uchun botni guruhga qo'shishdan **oldin**:
+
+1. Telegramda [@BotFather](https://t.me/BotFather) ga kiring
+2. `/mybots` → botingizni tanlang
+3. **Bot Settings** → **Group Privacy** → **Turn off**
+4. BotFather "Privacy mode is disabled" deb tasdiqlashi kerak
+
+Agar bot allaqachon guruhda bo'lsa, sozlamani o'zgartirgandan keyin uni
+guruhdan **chiqarib, qayta qo'shing** — aks holda eski sozlama kuchda qoladi.
+
 ## Ishga tushgach — birinchi qadamlar
 
-1. Botni ishchi guruhlarga **admin** sifatida qo'shing → guruhlar avtomatik
+1. Privacy Mode o'chirilganini tekshiring (yuqoriga qarang).
+2. Botni ishchi guruhlarga **admin** sifatida qo'shing → guruhlar avtomatik
    ro'yxatga olinadi va sizga xabar keladi.
-2. `/vazifa` bilan har guruhga bugungi vazifalarni qo'shing.
-3. Kerak bo'lsa `/vaqt` bilan so'rov/ertalab vaqtlarini moslang.
-4. `/debug` komandalari orqali jadvalni kutmasdan sinab ko'ring.
+3. `/vazifa` bilan har guruhga bugungi vazifalarni qo'shing.
+4. Kerak bo'lsa `/vaqt` bilan so'rov/ertalab vaqtlarini moslang.
+5. **Darhol sinab ko'ring** (jadvalni kutmasdan):
+   - `/test_sorov <guruh_id>` — guruhga hisobot so'rovini yuboradi
+   - guruhda 50 belgidan uzun hisobot yozing → bot javob berishi kerak
+   - `/matn <guruh_id>` — bot hisobotni ko'rganini tasdiqlaydi
+   - `/test_xulosa` — kunlik xulosa qanday ko'rinishini ko'rsatadi
 
 ## Eslatma
 
