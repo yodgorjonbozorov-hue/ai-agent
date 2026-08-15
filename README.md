@@ -3,8 +3,8 @@
 Ishchi guruhlardan kunlik ish hisobotlarini avtomatik so'raydigan, yig'adigan
 va adminga xulosa beradigan Telegram bot.
 
-> **Holat:** To'liq tayyor (1–4 bosqich). systemd bilan VPS'да ishga tushirishga
-> tayyor.
+> **Holat:** Tugallangan (1–5 bosqich). 59 ta avtomatik test o'tadi,
+> systemd bilan VPS'da ishga tushirishga tayyor.
 
 ## Texnologiyalar
 
@@ -30,9 +30,18 @@ va adminga xulosa beradigan Telegram bot.
 │   ├── ai_checker.py      # Claude API orqali hisobotni baholash
 │   ├── scheduler.py       # kunlik jadval joblari
 │   └── reporter.py        # kunlik/haftalik xulosa tuzish
+├── tests/                 # pytest testlari (59 ta)
+│   ├── conftest.py        # vaqtinchalik baza fixture'lari
+│   ├── test_database.py   # CRUD va loglar
+│   ├── test_reporter.py   # kunlik xulosa, eslatma, haftalik tahlil
+│   ├── test_ai_checker.py # AI javobini o'qish va normallashtirish
+│   ├── test_handlers.py   # handlerlar (soxta Update bilan)
+│   └── test_texts_and_scheduler.py
 ├── requirements.txt
+├── pytest.ini
 ├── .env.example
 ├── .gitignore
+├── install.sh             # VPS uchun bir buyruqli o'rnatuvchi
 └── disney-bot.service     # systemd unit fayli
 ```
 
@@ -43,7 +52,7 @@ va adminga xulosa beradigan Telegram bot.
   admin xabardor qilinadi (`my_chat_member`).
 - **09:00 — ertalabki xabar:** bugungi vazifalar guruhga yuboriladi
   (vazifa yo'q bo'lsa umumiy eslatma).
-- **18:00 — hisobot so'rovi:** guruhга standart shablon yuboriladi.
+- **18:00 — hisobot so'rovi:** guruhga standart shablon yuboriladi.
 - **Hisobot qabul qilish:** so'rovdan keyin kelgan, 50 belgidan uzun matn
   hisobot sifatida bazaga `pending` holatida yoziladi. Qisqa xabarlar
   (`ok`, `rahmat`) e'tiborsiz qoladi.
@@ -57,7 +66,7 @@ va adminga xulosa beradigan Telegram bot.
 - **Qayta so'rash:** to'liq bo'lmasa guruhga "…{yetishmagan} qismi yo'q —
   to'ldirib yuborasizmi?" deyiladi, status `incomplete`.
 - **Qabul:** to'liq bo'lsa "✅ Hisobot qabul qilindi", status `accepted`.
-- **Muammo signali:** `muammo_bormi: true` bo'lsa adminга darhol alohida xabar.
+- **Muammo signali:** `muammo_bormi: true` bo'lsa adminga darhol alohida xabar.
 - **Xulosa boyitildi:** 22:00 xulosaga AI qisqa xulosasi va e'tibor talab
   qiladigan bandlar qo'shildi.
 - **Barqarorlik:** AI kritik yo'l EMAS — timeout, rate limit yoki JSON parse
@@ -65,7 +74,7 @@ va adminga xulosa beradigan Telegram bot.
 
 **3-bosqich (eslatma, admin komandalari, haftalik tahlil)**
 - **18:30 — 1-eslatma:** faqat hali hisobot yubormagan guruhlarga, muloyim.
-- **20:00 — 2-eslatma + eskalatsiya:** guruhlarga takroriy eslatma, adminга
+- **20:00 — 2-eslatma + eskalatsiya:** guruhlarga takroriy eslatma, adminga
   "javob bermaganlar" ro'yxati.
 - **Shanba 20:00 — haftalik tahlil:** har guruhning hisobot berish foizi,
   o'rtacha AI bahosi, takrorlanuvchi muammolar va intizom reytingi (🥇🥈🥉).
@@ -80,15 +89,33 @@ va adminga xulosa beradigan Telegram bot.
   - `/bekor` — interaktiv jarayonni bekor qilish
 
 **4-bosqich (joylashtirish va debug)**
-- **`disney-bot.service`:** systemd unit — VPS'да avtomatik ishga tushirish,
+- **`disney-bot.service`:** systemd unit — VPS'da avtomatik ishga tushirish,
   nosozlikda qayta ishga tushirish.
 - **Debug komandalar** (jadvalni kutmasdan qo'lda test qilish uchun):
   - `/debug` — debug komandalar ro'yxati
   - `/test_ertalabki <id>` — guruhga ertalabki xabarni yuborish
   - `/test_sorov <id>` — guruhga hisobot so'rovini yuborish
   - `/test_eslatma` — hozir hisobot bermaganlarga eslatma
-  - `/test_haftalik` — haftalik tahlilni adminга yuborish
+  - `/test_haftalik` — haftalik tahlilni adminga yuborish
   - `/test_xulosa` — kunlik xulosani ko'rsatish
+
+**5-bosqich (sifat, testlar va tuzatishlar)**
+- **Test to'plami:** 59 ta pytest testi — baza CRUD, kunlik/haftalik xulosa,
+  eslatma mantig'i, AI javobini o'qish va handlerlar (soxta Update orqali,
+  Telegram API ga chiqmasdan).
+- **Tuzatildi — guruhda ortiqcha javob:** admin router endi faqat shaxsiy
+  chatda ishlaydi. Ilgari guruhda yozilgan `/start` ga bot "faqat admin uchun"
+  deb javob berib, ishchi guruhni keraksiz xabar bilan to'ldirardi.
+- **Tuzatildi — noto'g'ri hisobotlar:** boshqa botlarning xabarlari va
+  komandalar (`/vazifa ...`) endi hisobot sifatida bazaga tushmaydi.
+- **Tuzatildi — o'tkazib yuborilgan joblar:** har bir jobga 5 daqiqalik
+  `misfire_grace_time` qo'shildi. Ilgari bot aynan o'sha daqiqada qayta ishga
+  tushayotgan bo'lsa, kunlik xabar butunlay yo'qolardi.
+- **Tuzatildi — matn xatolari:** lotin o'zbek matniga aralashib qolgan kirill
+  harflari tozalandi (55 qator, jumladan foydalanuvchiga ko'rinadigan xabar).
+  Test bu xatoning qaytalanishini tekshiradi.
+- **Arzonlashtirildi:** AI so'rovi `effort: low` bilan yuboriladi — bu vazifa
+  oddiy tasnif, standart `high` daraja shart emas.
 
 ## O'rnatish (lokal test)
 
@@ -108,8 +135,19 @@ python bot.py
 
 Bot ishga tushgach:
 1. Botni ishchi guruhga admin sifatida qo'shing → guruh avtomatik ro'yxatga olinadi.
-2. Admin bilan shaxsiy chatда `/start` yuboring → yordam matni.
+2. Admin bilan shaxsiy chatda `/start` yuboring → yordam matni.
 3. `/guruhlar` — ro'yxatni ko'ring.
+
+## Testlar
+
+Testlar tarmoqqa chiqmaydi va haqiqiy bazaga tegmaydi — har biri o'zining
+vaqtinchalik SQLite faylida ishlaydi.
+
+```bash
+pip install pytest pytest-asyncio
+python -m pytest          # 59 ta test, ~5 soniya
+python -m pytest -v       # har bir test nomi bilan
+```
 
 ## Sozlamalar (`.env`)
 
@@ -122,18 +160,18 @@ Bot ishga tushgach:
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
-## VPS'га o'rnatish — eng oson yo'l (bitta buyruq)
+## VPS'ga o'rnatish — eng oson yo'l (bitta buyruq)
 
-Ubuntu/Debian VPS'да, root sifatida:
+Ubuntu/Debian VPS'da, root sifatida:
 
 ```bash
-git clone -b claude/disney-report-bot-04gmgw <repo-url> disney-report-bot
+git clone -b claude/ishni-davom-tugataylik-fu7sud <repo-url> disney-report-bot
 cd disney-report-bot
 sudo bash install.sh
 ```
 
-`install.sh` hamma narsани avtomatik qiladi: paketlar, foydalanuvchi, venv,
-bog'liqliklar, systemd xizmati. Faqat `BOT_TOKEN` va `ANTHROPIC_API_KEY` ни
+`install.sh` hamma narsani avtomatik qiladi: paketlar, foydalanuvchi, venv,
+bog'liqliklar, systemd xizmati. Faqat `BOT_TOKEN` va `ANTHROPIC_API_KEY` ni
 so'raydi (`ADMIN_ID` standart `5284718368`).
 
 Tugagach:
@@ -144,10 +182,10 @@ journalctl -u disney-bot -f        # jonli log
 
 ---
 
-## VPS'га o'rnatish — qo'lда (batafsil)
+## VPS'ga o'rnatish — qo'lda (batafsil)
 
-Agar avtomatik skript o'rniga qadamlарни qo'lда bajarmoqchi bo'lsangiz.
-Bot 24/7 ishlaydi va nosozlikда avtomatik qayta ishga tushadi.
+Agar avtomatik skript o'rniga qadamlarni qo'lda bajarmoqchi bo'lsangiz.
+Bot 24/7 ishlaydi va nosozlikda avtomatik qayta ishga tushadi.
 
 **1. Tizim tayyorligi va foydalanuvchi**
 
@@ -177,7 +215,7 @@ sudo -u disney nano .env   # BOT_TOKEN, ADMIN_ID, ANTHROPIC_API_KEY ni to'ldirin
 
 ```bash
 sudo cp disney-bot.service /etc/systemd/system/disney-bot.service
-# Unit faylдаги User/WorkingDirectory/yo'llarni tekshiring (standart: disney, /opt/disney-report-bot)
+# Unit fayldagi User/WorkingDirectory/yo'llarni tekshiring (standart: disney, /opt/disney-report-bot)
 sudo systemctl daemon-reload
 sudo systemctl enable --now disney-bot
 ```
@@ -210,6 +248,6 @@ sudo systemctl restart disney-bot
 
 ## Eslatma
 
-- Sirlar (`.env`) va baza (`data/`) `.gitignore`да — repozitoriyaga tushmaydi.
+- Sirlar (`.env`) va baza (`data/`) `.gitignore`da — repozitoriyaga tushmaydi.
 - `ANTHROPIC_API_KEY` bo'sh bo'lsa AI tekshiruv o'chadi, qolgan hamma narsa
   ishlaydi (hisobotlar `pending` holatida saqlanadi).
