@@ -68,6 +68,18 @@ def sent(monkeypatch):
 
 
 @pytest.fixture
+def guruhga(monkeypatch):
+    """bot.send_message orqali guruhlarga ketgan xabarlarni yig'adi."""
+    xabarlar: list[tuple[int, str]] = []
+
+    async def fake_send(self, chat_id, text, **kwargs):
+        xabarlar.append((chat_id, text))
+
+    monkeypatch.setattr(Bot, "send_message", fake_send, raising=False)
+    return xabarlar
+
+
+@pytest.fixture
 async def dispatcher(settings):
     await db.init_db(settings.db_path)
     bot = Bot(token=settings.bot_token)
@@ -422,3 +434,134 @@ async def test_vazifa_komandasi_oqimi_buzilmaydi(dispatcher, sent, edit_matnlari
     from services import reporter
     vazifalar = await db.get_tasks(gid, reporter.today_str(TZ))
     assert [v["text"] for v in vazifalar] == ["birinchi vazifa", "ikkinchi vazifa"]
+
+
+# --------------------------------------------------------------------------
+# Bugungi vazifa guruhga darhol yuborilishi
+# --------------------------------------------------------------------------
+
+async def test_bugungi_vazifa_guruhga_darhol_ketadi(
+    dispatcher, sent, edit_matnlari, guruhga
+):
+    """Admin bugunga vazifa bersa, guruh ertalabgacha kutmasligi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    from services import reporter
+    bugun = reporter.today_str(TZ)
+
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "bir_martalik", "sana": bugun,
+            "hafta_kunlari": [], "vazifalar": ["tozalikni tekshirish"],
+        }],
+    })
+
+    await dp.feed_update(bot, _message(
+        "Qurilish guruhiga hozir tozalikni tekshirish",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlok"))
+
+    assert len(guruhga) == 1
+    chat_id, matn = guruhga[0]
+    assert chat_id == GROUP_CHAT_ID
+    assert "tozalikni tekshirish" in matn
+    # Adminga ham yuborilgani aytiladi
+    assert "Guruhga hozir yuborildi" in edit_matnlari[-1]
+    assert "Qurilish" in edit_matnlari[-1]
+
+
+async def test_kelajakdagi_vazifa_darhol_yuborilmaydi(
+    dispatcher, sent, edit_matnlari, guruhga
+):
+    """Ertangi vazifa guruhga bugun emas, o'z kunida ertalab boradi."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "bir_martalik", "sana": "2030-01-01",
+            "hafta_kunlari": [], "vazifalar": ["devor suvash"],
+        }],
+    })
+
+    await dp.feed_update(bot, _message(
+        "vazifa", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlok"))
+
+    assert guruhga == []
+    assert "ertalab yuboriladi" in edit_matnlari[-1]
+    vazifalar = await db.get_tasks(gid, "2030-01-01")
+    assert [v["text"] for v in vazifalar] == ["devor suvash"]
+
+
+async def test_bugunga_tushadigan_doimiy_vazifa_darhol_ketadi(
+    dispatcher, sent, edit_matnlari, guruhga
+):
+    """'Har kuni' deb qo'shilgan vazifa bugun ham darhol yuborilishi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "doimiy", "sana": "",
+            "hafta_kunlari": [1, 2, 3, 4, 5, 6, 7],
+            "vazifalar": ["xavfsizlik tekshiruvi"],
+        }],
+    })
+
+    await dp.feed_update(bot, _message(
+        "har kuni xavfsizlik tekshiruvi",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlok"))
+
+    assert len(guruhga) == 1
+    assert "xavfsizlik tekshiruvi" in guruhga[0][1]
+    # Doimiy sifatida ham saqlangan
+    assert len(await db.get_recurring_tasks(gid)) == 1
+
+
+async def test_pauzadagi_guruhga_yuborilmaydi(
+    dispatcher, sent, edit_matnlari, guruhga
+):
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    await db.set_group_active(gid, False)
+    from services import reporter
+
+    dp["task_parser"] = SoxtaParser({
+        "tushunarli": True, "savol": "",
+        "topshiriqlar": [{
+            "guruh_id": gid, "tur": "bir_martalik",
+            "sana": reporter.today_str(TZ), "hafta_kunlari": [],
+            "vazifalar": ["vazifa"],
+        }],
+    })
+
+    await dp.feed_update(bot, _message(
+        "vazifa", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback("nlok"))
+
+    assert guruhga == []
+
+
+async def test_vazifa_komandasi_ham_darhol_yuboradi(
+    dispatcher, sent, edit_matnlari, guruhga
+):
+    """Eski /vazifa oqimi ham xuddi shunday darhol yuborishi kerak."""
+    dp, bot = dispatcher
+    gid = await db.add_or_update_group(GROUP_CHAT_ID, "Qurilish", tz=TZ)
+    dp["task_parser"] = SoxtaParser(None)
+
+    await dp.feed_update(bot, _message(
+        "/vazifa", chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+    await dp.feed_update(bot, _callback(f"vz:{gid}"))
+    await dp.feed_update(bot, _message(
+        "devor suvash\npol tayyorlash",
+        chat_id=ADMIN_ID, chat_type="private", user_id=ADMIN_ID))
+
+    assert len(guruhga) == 1
+    assert "devor suvash" in guruhga[0][1]
+    assert "pol tayyorlash" in guruhga[0][1]

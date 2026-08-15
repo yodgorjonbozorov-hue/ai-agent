@@ -302,7 +302,23 @@ def tasdiq_bloki(
     return f"{sarlavha}\n{ro_yxat}"
 
 
-def vazifalar_saqlandi(bir_martalik: int, doimiy: int) -> str:
+def yangi_vazifalar_guruhga(vazifalar: list[str]) -> str:
+    """Vazifa bugunga bo'lsa, guruhga darhol yuboriladigan xabar."""
+    ro_yxat = "\n".join(f"{i}. {v}" for i, v in enumerate(vazifalar, start=1))
+    return (
+        "📌 Yangi vazifa\n\n"
+        f"{ro_yxat}\n\n"
+        "Kun oxirida hisobot kutamiz."
+    )
+
+
+def vazifalar_saqlandi(
+    bir_martalik: int,
+    doimiy: int,
+    yuborilgan_guruhlar: list[str] | None = None,
+    ertalabga: int = 0,
+) -> str:
+    """Adminga: nima saqlandi va nima allaqachon guruhga ketdi."""
     qatorlar = []
     if bir_martalik:
         qatorlar.append(f"📌 {bir_martalik} ta vazifa saqlandi")
@@ -310,7 +326,21 @@ def vazifalar_saqlandi(bir_martalik: int, doimiy: int) -> str:
         qatorlar.append(f"🔁 {doimiy} ta doimiy vazifa qo'shildi")
     if not qatorlar:
         return "Hech narsa saqlanmadi."
-    return "✅ " + "\n✅ ".join(qatorlar)
+
+    matn = "✅ " + "\n✅ ".join(qatorlar)
+
+    if yuborilgan_guruhlar:
+        ro_yxat = ", ".join(yuborilgan_guruhlar)
+        matn += f"\n\n📤 Guruhga hozir yuborildi: {ro_yxat}"
+    if ertalabga:
+        matn += f"\n\n🕘 {ertalabga} ta vazifa o'z kunida ertalab yuboriladi."
+    return matn
+
+
+GURUHGA_YUBORILMADI = (
+    "\n\n⚠️ Ba'zi guruhlarga xabar yuborib bo'lmadi — bot guruhdan "
+    "chiqarilgan yoki yozish huquqi yo'q bo'lishi mumkin."
+)
 
 
 TASDIQLASH = "✅ Ha, to'g'ri"

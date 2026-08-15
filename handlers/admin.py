@@ -23,7 +23,7 @@ import logging
 import re
 from typing import Any
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -388,9 +388,9 @@ async def cb_vazifa_group(
 
 @router.message(VazifaSG.text)
 async def on_vazifa_text(
-    message: Message, settings: Settings, state: FSMContext
+    message: Message, bot: Bot, settings: Settings, state: FSMContext
 ) -> None:
-    """Vazifa matnini qabul qilib bazaga yozadi."""
+    """Vazifa matnini qabul qilib bazaga yozadi va guruhga darhol yuboradi."""
     if not _is_admin_msg(message, settings):
         return
     data = await state.get_data()
@@ -399,13 +399,26 @@ async def on_vazifa_text(
 
     # Har bir bo'sh bo'lmagan qatorni alohida vazifa deb qabul qilamiz
     lines = [ln.strip() for ln in (message.text or "").splitlines() if ln.strip()]
-    for line in lines:
-        await db.add_task(gid, date, line)
+    yangilar = [ln for ln in lines if await db.add_task_if_absent(gid, date, ln)]
 
     await state.clear()
     group = await db.get_group_by_id(gid)
-    name = group.get("name") if group else f"Guruh {gid}"
-    await message.answer(texts.vazifa_added(name or f"Guruh {gid}", len(lines)))
+    name = (group.get("name") if group else None) or f"Guruh {gid}"
+    javob = texts.vazifa_added(name, len(lines))
+
+    # Vazifa bugunga qo'shildi — guruh ertalabgacha kutmasligi kerak
+    if yangilar and group and group.get("is_active"):
+        try:
+            await bot.send_message(
+                group["chat_id"], texts.yangi_vazifalar_guruhga(yangilar)
+            )
+            javob += f"\n\n📤 Guruhga hozir yuborildi."
+        except Exception:
+            logger.error("Guruhga vazifa yuborishda xato (guruh %d)", gid,
+                         exc_info=True)
+            javob += texts.GURUHGA_YUBORILMADI
+
+    await message.answer(javob)
 
 
 # --------------------------------------------------------------------------
@@ -622,9 +635,15 @@ async def on_free_text(
 
 @router.callback_query(lambda c: c.data == "nlok")
 async def cb_confirm_tasks(
-    callback: CallbackQuery, settings: Settings, state: FSMContext
+    callback: CallbackQuery, bot: Bot, settings: Settings, state: FSMContext
 ) -> None:
-    """Tasdiqlangan vazifalarni bazaga yozadi."""
+    """
+    Tasdiqlangan vazifalarni bazaga yozadi.
+
+    Bugunga tegishli vazifalar guruhga DARHOL yuboriladi — admin vazifa
+    berganda guruh buni ertalabgacha kutmasligi kerak. Kelajakdagi kunlar
+    va doimiy vazifalar o'z kunida ertalabki xabarga tushadi.
+    """
     if not _is_admin_cb(callback, settings):
         await callback.answer()
         return
@@ -636,23 +655,60 @@ async def cb_confirm_tasks(
             await callback.answer()
             return
 
+        bugun = reporter.today_str(settings.tz)
+        bugungi_kun = reporter.today_weekday(settings.tz)
+
         bir_martalik = 0
         doimiy = 0
+        ertalabga = 0
+        # guruh id -> bugun uchun yangi qo'shilgan vazifalar
+        bugungi: dict[int, list[str]] = {}
+
         for t in topshiriqlar:
             gid = int(t["guruh_id"])
             if t["tur"] == "doimiy":
+                kunlar = t["hafta_kunlari"] or [1, 2, 3, 4, 5, 6, 7]
                 for v in t["vazifalar"]:
-                    await db.add_recurring_task(gid, v, t["hafta_kunlari"], settings.tz)
+                    await db.add_recurring_task(gid, v, kunlar, settings.tz)
                     doimiy += 1
+                    # Bugun ham shu kunlar ichida bo'lsa — kutib o'tirmaymiz
+                    if bugungi_kun in kunlar:
+                        if await db.add_task_if_absent(gid, bugun, v):
+                            bugungi.setdefault(gid, []).append(v)
+                    else:
+                        ertalabga += 1
             else:
                 for v in t["vazifalar"]:
-                    await db.add_task(gid, t["sana"], v)
                     bir_martalik += 1
+                    if t["sana"] == bugun:
+                        if await db.add_task_if_absent(gid, bugun, v):
+                            bugungi.setdefault(gid, []).append(v)
+                    else:
+                        await db.add_task(gid, t["sana"], v)
+                        ertalabga += 1
+
+        # Bugungi vazifalarni guruhlarga yuboramiz
+        yuborilgan: list[str] = []
+        xatolik = False
+        for gid, vazifalar in bugungi.items():
+            group = await db.get_group_by_id(gid)
+            if not group or not group.get("is_active"):
+                continue
+            try:
+                await bot.send_message(
+                    group["chat_id"], texts.yangi_vazifalar_guruhga(vazifalar)
+                )
+                yuborilgan.append(group.get("name") or f"Guruh {gid}")
+            except Exception:
+                xatolik = True
+                logger.error("Guruhga vazifa yuborishda xato (guruh %d)", gid,
+                             exc_info=True)
 
         await state.update_data(nl_topshiriqlar=None)
-        await callback.message.edit_text(
-            texts.vazifalar_saqlandi(bir_martalik, doimiy)
-        )
+        javob = texts.vazifalar_saqlandi(bir_martalik, doimiy, yuborilgan, ertalabga)
+        if xatolik:
+            javob += texts.GURUHGA_YUBORILMADI
+        await callback.message.edit_text(javob)
     except Exception:
         logger.error("Vazifalarni saqlashda xato", exc_info=True)
         await callback.message.answer("Xatolik yuz berdi. Loglarni tekshiring.")
