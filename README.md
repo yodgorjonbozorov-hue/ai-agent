@@ -166,6 +166,13 @@ request'da (`.github/workflows/tests.yml`). Sir yoki token talab qilmaydi.
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |
 | `LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
+## Serverga joylashtirish — qaysi yo'lni tanlash
+
+| Vaziyat | Yo'l |
+|---|---|
+| Serverim yo'q, tekin va tez kerak | **[GUIDE_GOOGLE.md](GUIDE_GOOGLE.md)** — Google Cloud "Always Free", ~25 daqiqa |
+| Menda Ubuntu/Debian VPS bor | Quyidagi `install.sh` yo'li |
+
 ## VPS'ga o'rnatish — eng oson yo'l (bitta buyruq)
 
 Ubuntu/Debian VPS'da, root sifatida:
