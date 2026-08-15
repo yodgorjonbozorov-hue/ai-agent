@@ -37,7 +37,10 @@ va adminga xulosa beradigan Telegram bot.
 │   ├── test_ai_checker.py # AI javobini o'qish va normallashtirish
 │   ├── test_handlers.py   # handlerlar (soxta Update bilan)
 │   └── test_texts_and_scheduler.py
+├── .github/workflows/
+│   └── tests.yml          # CI: har push/PR da testlar
 ├── requirements.txt
+├── requirements-dev.txt   # testlar uchun qo'shimcha paketlar
 ├── pytest.ini
 ├── .env.example
 ├── .gitignore
@@ -144,10 +147,13 @@ Testlar tarmoqqa chiqmaydi va haqiqiy bazaga tegmaydi — har biri o'zining
 vaqtinchalik SQLite faylida ishlaydi.
 
 ```bash
-pip install pytest pytest-asyncio
+pip install -r requirements-dev.txt
 python -m pytest          # 59 ta test, ~5 soniya
 python -m pytest -v       # har bir test nomi bilan
 ```
+
+Testlar GitHub Actions'da ham avtomatik ishlaydi: har bir push va pull
+request'da (`.github/workflows/tests.yml`). Sir yoki token talab qilmaydi.
 
 ## Sozlamalar (`.env`)
 
