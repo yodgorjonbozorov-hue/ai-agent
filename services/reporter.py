@@ -36,7 +36,7 @@ async def build_daily_summary(tz: ZoneInfo) -> str:
     Har bir faol guruh uchun bitta qator:
       ✅ Nomi — AI qisqa xulosa (bo'lsa) / hisobot bor
       ❌ Nomi — hisobot yo'q
-    E'tibor talab qiladigan bandlar (has_problem) alohida ro'yxatда beriladi.
+    E'tibor talab qiladigan bandlar (has_problem) alohida ro'yxatda beriladi.
     """
     date = today_str(tz)
     groups = await db.get_all_groups(only_active=True)
@@ -87,7 +87,7 @@ async def build_daily_summary(tz: ZoneInfo) -> str:
 async def missing_groups_today(tz: ZoneInfo) -> list[dict[str, Any]]:
     """
     So'rov (18:00) yuborilgan, lekin hali hisobot yubormagan faol guruhlar.
-    Eslatma va eskalatsiya joblari shu ro'yxatдан foydalanadi.
+    Eslatma va eskalatsiya joblari shu ro'yxatdan foydalanadi.
     """
     date = today_str(tz)
     groups = await db.get_all_groups(only_active=True)

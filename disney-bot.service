@@ -28,7 +28,7 @@ Environment=PYTHONUNBUFFERED=1
 Restart=always
 RestartSec=5
 
-# Jurnalда aniqroq nom
+# Jurnalda aniqroq nom
 SyslogIdentifier=disney-bot
 
 # Xavfsizlik cheklovlari (ixtiyoriy, lekin tavsiya etiladi)

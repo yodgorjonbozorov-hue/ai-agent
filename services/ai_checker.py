@@ -150,6 +150,9 @@ class AiChecker:
                 max_tokens=1024,
                 system=SYSTEM_PROMPT,
                 thinking={"type": "disabled"},  # oddiy tasnif — fikrlash shart emas
+                # Model standart holatda "high" darajada ishlaydi; bu vazifa uchun
+                # "low" yetarli va sezilarli darajada arzon/tez.
+                output_config={"effort": "low"},
                 messages=[{"role": "user", "content": user_message}],
             )
         except anthropic.APITimeoutError:

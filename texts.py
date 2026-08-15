@@ -8,7 +8,7 @@ osonlashtiradi.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 # --------------------------------------------------------------------------
 # Guruhga yuboriladigan xabarlar
@@ -73,7 +73,7 @@ REPORT_RECEIVED_PLAIN = "✅ Hisobotingiz qabul qilindi, rahmat!"
 
 
 # --------------------------------------------------------------------------
-# Adminга yuboriladigan xabarlar
+# Adminga yuboriladigan xabarlar
 # --------------------------------------------------------------------------
 
 def admin_new_group(name: str, chat_id: int) -> str:
@@ -164,7 +164,7 @@ def group_list_line(g: dict[str, Any], has_report: bool) -> str:
 # --------------------------------------------------------------------------
 
 CHOOSE_GROUP = "Guruhni tanlang:"
-NO_GROUPS = "Hozircha birorta guruh ro'yxatда yo'q."
+NO_GROUPS = "Hozircha birorta guruh ro'yxatda yo'q."
 CANCELLED = "Bekor qilindi."
 
 VAZIFA_ENTER = "✍️ Endi vazifa matnini yuboring (bir nechta bo'lsa har birini alohida qatorda):"

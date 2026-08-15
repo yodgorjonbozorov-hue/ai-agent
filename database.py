@@ -20,7 +20,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-# Baza yo'li config'dan init_db chaqirilганda beriladi
+# Baza yo'li config'dan init_db chaqirilganda beriladi
 _DB_PATH: str = "data/bot.db"
 
 
@@ -377,8 +377,8 @@ async def get_log_dates_range(
     start_date: str, end_date: str, log_type: str
 ) -> list[tuple[int, str]]:
     """
-    Oraliqда berilgan turdagi loglarning (group_id, date) juftliklarini
-    qaytaradi. Haftalik tahlilда 'so'rov yuborilgan kunlar' sonini
+    Oraliqda berilgan turdagi loglarning (group_id, date) juftliklarini
+    qaytaradi. Haftalik tahlilda 'so'rov yuborilgan kunlar' sonini
     hisoblash uchun ishlatiladi.
     """
     async with aiosqlite.connect(_DB_PATH) as db:

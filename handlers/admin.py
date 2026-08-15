@@ -23,7 +23,7 @@ import logging
 import re
 from typing import Any
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
@@ -44,6 +44,11 @@ from services.scheduler import BotScheduler
 logger = logging.getLogger(__name__)
 
 router = Router(name="admin")
+
+# Admin komandalari faqat shaxsiy chatda ishlaydi. Bu filtrsiz guruhda
+# yozilgan /start ga bot "faqat admin uchun" deb javob berib, guruhni
+# keraksiz xabar bilan to'ldirardi.
+router.message.filter(F.chat.type == ChatType.PRIVATE)
 
 # HH:MM formatini tekshirish uchun shablon
 _TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -69,7 +74,7 @@ class VaqtSG(StatesGroup):
 # --------------------------------------------------------------------------
 
 def _is_admin_msg(message: Message, settings: Settings) -> bool:
-    """Xabar admindan, shaxsiy chatдан kelganini tekshiradi."""
+    """Xabar admindan, shaxsiy chatdan kelganini tekshiradi."""
     if message.chat.type != ChatType.PRIVATE:
         return False
     return bool(message.from_user and message.from_user.id == settings.admin_id)
@@ -195,7 +200,7 @@ async def cmd_debug(message: Message, settings: Settings) -> None:
 async def cmd_test_weekly(
     message: Message, settings: Settings, scheduler: BotScheduler
 ) -> None:
-    """Haftalik tahlilni adminга yuborish yo'lini sinaydi."""
+    """Haftalik tahlilni adminga yuborish yo'lini sinaydi."""
     if not _is_admin_msg(message, settings):
         await message.answer(texts.NOT_ADMIN)
         return
@@ -468,7 +473,7 @@ async def on_vaqt_value(
     raw = (message.text or "").strip()
     match = _TIME_RE.match(raw)
     if not match:
-        await message.answer(texts.VAQT_INVALID)  # holatдa qolamiz, qayta urinsin
+        await message.answer(texts.VAQT_INVALID)  # holatda qolamiz, qayta urinsin
         return
 
     value = f"{int(match.group(1)):02d}:{match.group(2)}"  # HH:MM normallash

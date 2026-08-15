@@ -3,7 +3,7 @@ groups.py — guruhlardagi hodisalarni qayta ishlash.
 
 Ikki vazifa:
   1. Bot guruhga qo'shilganda (my_chat_member) — guruhni avtomatik
-     ro'yxatga olish va adminга xabar berish.
+     ro'yxatga olish va adminga xabar berish.
   2. Guruhdan kelgan matnli xabarni hisobot sifatida qabul qilish:
      - faqat ro'yxatdagi guruhlardan;
      - so'rov (18:00) yuborilgandan keyin kelgan;
@@ -11,7 +11,7 @@ Ikki vazifa:
      Qisqa "ok", "rahmat" kabi xabarlar e'tiborsiz qoldiriladi.
 
 1-bosqichda hisobot bazaga 'pending' holatida yoziladi va oddiy tasdiq
-javobi beriladi. AI tekshiruv 2-bosqichда qo'shiladi.
+javobi beriladi. AI tekshiruv 2-bosqichda qo'shiladi.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ async def on_bot_added(
             )
             logger.info("Yangi guruh ro'yxatga olindi: %s (%s)", chat.title, chat.id)
         except Exception:
-            logger.error("Guruhni ro'yxatga olishда xato (%s)", chat.id, exc_info=True)
+            logger.error("Guruhni ro'yxatga olishda xato (%s)", chat.id, exc_info=True)
 
 
 @router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text)
@@ -91,10 +91,18 @@ async def on_group_message(
         if not group or not group.get("is_active"):
             return
 
+        # Boshqa botlarning xabarlari hisobot emas
+        if message.from_user and message.from_user.is_bot:
+            return
+
         text = (message.text or "").strip()
 
         # Qisqa xabarlar (ok, rahmat, ...) e'tiborsiz
         if len(text) < MIN_REPORT_LENGTH:
+            return
+
+        # Komandalar (/vazifa ...) hisobot sifatida saqlanmaydi
+        if text.startswith("/"):
             return
 
         group_id = int(group["id"])
@@ -152,7 +160,7 @@ async def on_group_message(
         else:
             await message.reply(texts.report_incomplete(result["yetishmagan"]))
 
-        # Muammo bo'lsa — adminга darhol alohida xabar
+        # Muammo bo'lsa — adminga darhol alohida xabar
         if result["muammo_bormi"]:
             try:
                 await bot.send_message(
@@ -163,6 +171,6 @@ async def on_group_message(
                     ),
                 )
             except Exception:
-                logger.error("Adminга muammo xabarini yuborishda xato", exc_info=True)
+                logger.error("Adminga muammo xabarini yuborishda xato", exc_info=True)
     except Exception:
         logger.error("Guruh xabarini qayta ishlashda xato", exc_info=True)
