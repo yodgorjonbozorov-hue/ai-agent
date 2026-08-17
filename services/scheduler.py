@@ -25,6 +25,7 @@ import database as db
 import texts
 from config import Settings
 from services import reporter
+from services.ai import AiAssistant
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,10 @@ def _parse_hm(value: str, default: tuple[int, int]) -> tuple[int, int]:
 class BotScheduler:
     """Botning barcha rejalashtirilgan vazifalarini boshqaradi."""
 
-    def __init__(self, bot: Bot, settings: Settings) -> None:
+    def __init__(self, bot: Bot, settings: Settings, ai: AiAssistant) -> None:
         self.bot = bot
         self.settings = settings
+        self.ai = ai
         self.scheduler = AsyncIOScheduler(timezone=settings.tz)
 
     # ------------------------------------------------------------------
@@ -151,11 +153,31 @@ class BotScheduler:
 
             date = reporter.today_str(self.settings.tz)
             tasks = await db.get_tasks(group_id, date)
+            task_list = [t["text"] for t in tasks]
 
-            if tasks:
-                text = texts.morning_with_tasks([t["text"] for t in tasks])
+            # Matnni AI yozadi; ishlamasa shablonga qaytamiz
+            if task_list:
+                fallback = texts.morning_with_tasks(task_list)
+                task_prompt = (
+                    "Guruhga ertalabki xabar yoz: salomlash va bugungi vazifalarni "
+                    "raqamlangan ro'yxat qilib ko'rsat. Oxirida kun oxirida hisobot "
+                    "kutilishini eslatib qo'y. Vazifalar matnini o'zgartirma."
+                )
             else:
-                text = texts.MORNING_NO_TASKS
+                fallback = texts.MORNING_NO_TASKS
+                task_prompt = (
+                    "Guruhga qisqa ertalabki xabar yoz. Bugunga alohida vazifa "
+                    "belgilanmagan, shuning uchun rejadagi ishlarni davom ettirishni "
+                    "va kun oxirida hisobot kutilishini ayt. Vazifa o'ylab topma."
+                )
+
+            context = (
+                f"Guruh: {group.get('name') or 'nomsiz'}\n"
+                f"Sana: {reporter.pretty_date(self.settings.tz)}\n"
+                "Bugungi vazifalar:\n"
+                + ("\n".join(f"- {t}" for t in task_list) if task_list else "(yo'q)")
+            )
+            text = await self.ai.compose(task_prompt, context) or fallback
 
             await self.bot.send_message(group["chat_id"], text)
             await db.add_log(group_id, date, "morning", self.settings.tz)
@@ -171,11 +193,48 @@ class BotScheduler:
                 return
 
             date = reporter.today_str(self.settings.tz)
-            await self.bot.send_message(group["chat_id"], texts.REPORT_REQUEST)
+            tasks = await db.get_tasks(group_id, date)
+            task_list = [t["text"] for t in tasks]
+
+            text = await self.ai.compose(
+                "Guruhdan kunlik hisobot so'ra. Xabar oxirida hisobot tuzilishini "
+                "aynan shu 4 band bilan ko'rsat: 1) Bajarilgan ishlar 2) Bajarilmagani "
+                "va sababi 3) Muammolar / kerak bo'lgan yordam 4) Ertangi reja.",
+                context=(
+                    f"Guruh: {group.get('name') or 'nomsiz'}\n"
+                    f"Sana: {reporter.pretty_date(self.settings.tz)}\n"
+                    "Bugun ertalab berilgan vazifalar:\n"
+                    + ("\n".join(f"- {t}" for t in task_list) if task_list else "(yo'q)")
+                ),
+            ) or texts.REPORT_REQUEST
+
+            await self.bot.send_message(group["chat_id"], text)
             await db.add_log(group_id, date, "request", self.settings.tz)
             logger.info("Hisobot so'rovi yuborildi: guruh %d", group_id)
         except Exception:
             logger.error("Hisobot so'rovi xatosi (guruh %d)", group_id, exc_info=True)
+
+    async def _reminder_text(self, group: dict[str, Any], firm: bool) -> str:
+        """Eslatma matnini AI yozadi; ishlamasa shablon qaytadi."""
+        if firm:
+            task = (
+                "Hisobot hali kelmagan guruhga takroriy eslatma yoz. Bu ikkinchi "
+                "eslatma, shuning uchun ohang aniqroq va qat'iyroq bo'lsin, lekin "
+                "qo'pol emas. Kun yakunlanishidan oldin yuborish kerakligini ayt."
+            )
+            fallback = texts.REMINDER_FIRM
+        else:
+            task = (
+                "Hisobot hali kelmagan guruhga muloyim, qisqa eslatma yoz. "
+                "Ayblamasdan, iltimos qilib so'ra."
+            )
+            fallback = texts.REMINDER_SOFT
+
+        context = (
+            f"Guruh: {group.get('name') or 'nomsiz'}\n"
+            f"Hisobot so'ralgan vaqt: {group.get('request_time')}"
+        )
+        return await self.ai.compose(task, context, max_tokens=300) or fallback
 
     async def _send_reminders_soft(self) -> None:
         """18:30 — hali hisobot yubormagan guruhlarga muloyim eslatma."""
@@ -184,7 +243,8 @@ class BotScheduler:
             missing = await reporter.missing_groups_today(self.settings.tz)
             for g in missing:
                 try:
-                    await self.bot.send_message(g["chat_id"], texts.REMINDER_SOFT)
+                    text = await self._reminder_text(g, firm=False)
+                    await self.bot.send_message(g["chat_id"], text)
                     await db.add_log(int(g["id"]), date, "reminder_soft", self.settings.tz)
                 except Exception:
                     logger.error("1-eslatma xatosi (guruh %s)", g.get("id"), exc_info=True)
@@ -200,7 +260,8 @@ class BotScheduler:
 
             for g in missing:
                 try:
-                    await self.bot.send_message(g["chat_id"], texts.REMINDER_FIRM)
+                    text = await self._reminder_text(g, firm=True)
+                    await self.bot.send_message(g["chat_id"], text)
                     await db.add_log(int(g["id"]), date, "reminder_firm", self.settings.tz)
                 except Exception:
                     logger.error("2-eslatma xatosi (guruh %s)", g.get("id"), exc_info=True)
@@ -219,7 +280,7 @@ class BotScheduler:
     async def _send_daily_summary(self) -> None:
         """22:00 — kunlik xulosani adminga yuboradi."""
         try:
-            text = await reporter.build_daily_summary(self.settings.tz)
+            text = await reporter.build_daily_summary(self.settings.tz, self.ai)
             await self.bot.send_message(self.settings.admin_id, text)
             date = reporter.today_str(self.settings.tz)
             await db.add_log(None, date, "daily_summary", self.settings.tz)
@@ -230,7 +291,7 @@ class BotScheduler:
     async def _send_weekly(self) -> None:
         """Shanba 20:00 — haftalik tahlilni adminga yuboradi."""
         try:
-            text = await reporter.build_weekly_analysis(self.settings.tz)
+            text = await reporter.build_weekly_analysis(self.settings.tz, self.ai)
             await self.bot.send_message(self.settings.admin_id, text)
             date = reporter.today_str(self.settings.tz)
             await db.add_log(None, date, "weekly", self.settings.tz)

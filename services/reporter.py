@@ -1,8 +1,9 @@
 """
-reporter.py — kunlik (va keyinchalik haftalik) xulosa tuzish.
+reporter.py — kunlik va haftalik xulosa tuzish.
 
-1-bosqichda xulosa AI'siz: faqat qaysi guruh hisobot yubordi/yubormadi.
-2-bosqichda AI xulosalari (ai_summary, has_problem) qo'shiladi.
+Raqamlar va ro'yxatlar bazadan aniq olinadi (AI ularni o'ylab topmaydi),
+AI esa xulosaning oxiriga qisqa sharh va tavsiya yozadi — adminga quruq
+jadval emas, jonli xulosa borsin.
 """
 
 from __future__ import annotations
@@ -10,11 +11,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from statistics import mean
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import database as db
 import texts
+from services.ai import AiAssistant
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,18 @@ def pretty_date(tz: ZoneInfo) -> str:
     return datetime.now(tz).strftime("%d.%m.%Y")
 
 
-async def build_daily_summary(tz: ZoneInfo) -> str:
+async def _ai_note(ai: Optional[AiAssistant], task: str, context: str) -> str:
+    """
+    Xulosa oxiriga qo'shiladigan AI sharhi. AI o'chiq yoki xato bo'lsa —
+    bo'sh satr (xulosaning o'zi baribir to'liq chiqadi).
+    """
+    if ai is None or not ai.enabled:
+        return ""
+    note = await ai.compose(task, context, max_tokens=400)
+    return f"\n\n🧠 {note.strip()}" if note else ""
+
+
+async def build_daily_summary(tz: ZoneInfo, ai: Optional[AiAssistant] = None) -> str:
     """
     22:00 kunlik xulosa matnini tuzadi.
 
@@ -75,13 +88,21 @@ async def build_daily_summary(tz: ZoneInfo) -> str:
             problem = (report.get("problem_text") or "").strip()
             attention.append(f"{name}: {problem or 'muammo qayd etildi'}")
 
-    return texts.admin_daily_summary(
+    summary = texts.admin_daily_summary(
         date_str=pretty_date(tz),
         submitted=submitted,
         total=len(groups),
         lines=lines,
         attention=attention,
     )
+    summary += await _ai_note(
+        ai,
+        "Adminга kunlik xulosaning oxiriga 1-2 jumlalik sharh yoz: bugungi asosiy "
+        "holat va ertaga nimaga e'tibor berish kerak. Raqamlarni takrorlama, "
+        "ular yuqorida allaqachon bor.",
+        context=summary,
+    )
+    return summary
 
 
 async def missing_groups_today(tz: ZoneInfo) -> list[dict[str, Any]]:
@@ -102,7 +123,7 @@ async def missing_groups_today(tz: ZoneInfo) -> list[dict[str, Any]]:
     return missing
 
 
-async def build_weekly_analysis(tz: ZoneInfo) -> str:
+async def build_weekly_analysis(tz: ZoneInfo, ai: Optional[AiAssistant] = None) -> str:
     """
     Haftalik tahlil (oxirgi 7 kun): har guruhning hisobot berish foizi,
     o'rtacha AI bahosi, takrorlanuvchi muammolar va intizom reytingi.
@@ -171,4 +192,12 @@ async def build_weekly_analysis(tz: ZoneInfo) -> str:
     ]
 
     period = f"{start.strftime('%d.%m')} – {today.strftime('%d.%m.%Y')}"
-    return texts.admin_weekly(period, lines, all_problems)
+    analysis = texts.admin_weekly(period, lines, all_problems)
+    analysis += await _ai_note(
+        ai,
+        "Adminга haftalik tahlilning oxiriga 2-3 jumlalik xulosa yoz: qaysi guruh "
+        "ko'tarilgan yoki tushgan, takrorlanuvchi muammo bo'lsa nima qilish kerak. "
+        "Reyting raqamlarini qayta sanab chiqma.",
+        context=analysis,
+    )
+    return analysis

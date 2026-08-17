@@ -19,6 +19,9 @@ from dotenv import load_dotenv
 # .env faylni yuklaymiz (agar mavjud bo'lsa)
 load_dotenv()
 
+# Standart AI modeli — .env dagi AI_MODEL bilan almashtirsa bo'ladi
+DEFAULT_AI_MODEL = "claude-opus-5"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -26,6 +29,7 @@ class Settings:
 
     bot_token: str
     anthropic_api_key: str
+    ai_model: str
     admin_id: int
     db_path: str
     timezone_name: str
@@ -49,7 +53,9 @@ def _require(name: str) -> str:
 def load_settings() -> Settings:
     """.env dan sozlamalarni o'qib, Settings obyektini qaytaradi."""
     bot_token = _require("BOT_TOKEN")
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()  # 2-bosqichda majburiy bo'ladi
+    # Kalit bo'lmasa AI o'chadi va bot zaxira shablonlar bilan ishlaydi
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    ai_model = os.getenv("AI_MODEL", DEFAULT_AI_MODEL).strip()
 
     admin_id_raw = _require("ADMIN_ID")
     try:
@@ -68,6 +74,7 @@ def load_settings() -> Settings:
     return Settings(
         bot_token=bot_token,
         anthropic_api_key=anthropic_api_key,
+        ai_model=ai_model,
         admin_id=admin_id,
         db_path=db_path,
         timezone_name=timezone_name,

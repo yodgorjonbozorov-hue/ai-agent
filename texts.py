@@ -1,14 +1,20 @@
 """
-texts.py — foydalanuvchiga ko'rinadigan barcha matn shablonlari.
+texts.py — ZAXIRA matn shablonlari.
 
-Barcha matnlar o'zbek tilida (lotin). Kod ichida matn qattiq yozilmaydi —
-shu yerdan f-string shablon sifatida olinadi. Bu tarjima va o'zgartirishni
-osonlashtiradi.
+Botning odamlarga boradigan matnlarini odatda AI yozadi (services/ai.py).
+Bu yerdagi shablonlar faqat AI ishlamaganda ishlatiladi: API kaliti yo'q,
+timeout, rate limit yoki javobni o'qib bo'lmadi. Shunda ham bot jim
+qolmaydi va hisobot yo'qolmaydi.
+
+Adminга boradigan ro'yxat/reyting matnlari esa doim shu yerdan olinadi —
+raqamlar aniq bo'lishi kerak, AI faqat ularga sharh qo'shadi.
+
+Barcha matnlar o'zbek tilida (lotin).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 # --------------------------------------------------------------------------
 # Guruhga yuboriladigan xabarlar
@@ -70,6 +76,12 @@ def report_incomplete(missing: list[str]) -> str:
 
 # Hisobot bazaga tushdi, lekin AI ishlamadi (pending)
 REPORT_RECEIVED_PLAIN = "✅ Hisobotingiz qabul qilindi, rahmat!"
+
+# Savolga javob berish kerak edi, lekin AI javob bermadi
+AI_UNAVAILABLE = (
+    "Hozir javob bera olmadim — biroz kutib qayta yozing. "
+    "Muammo takrorlansa, adminга xabar bering."
+)
 
 
 # --------------------------------------------------------------------------

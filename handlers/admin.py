@@ -15,6 +15,9 @@ Komandalar:
   /bekor        — interaktiv jarayonni bekor qilish
 
 Guruh tanlash inline keyboard orqali amalga oshiriladi.
+
+Komanda bo'lmagan oddiy matnga faylning oxiridagi handler javob beradi:
+javobni AI yozadi va u guruhlarning joriy holatini biladi.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ import logging
 import re
 from typing import Any
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
@@ -39,6 +42,7 @@ import database as db
 import texts
 from config import Settings
 from services import reporter
+from services.ai import AiAssistant
 from services.scheduler import BotScheduler
 
 logger = logging.getLogger(__name__)
@@ -128,13 +132,13 @@ async def cmd_groups(message: Message, settings: Settings) -> None:
 
 
 @router.message(Command("hisobot"))
-async def cmd_status(message: Message, settings: Settings) -> None:
+async def cmd_status(message: Message, settings: Settings, ai: AiAssistant) -> None:
     """Bugungi umumiy holatni ko'rsatadi."""
     if not _is_admin_msg(message, settings):
         await message.answer(texts.NOT_ADMIN)
         return
     try:
-        text = await reporter.build_daily_summary(settings.tz)
+        text = await reporter.build_daily_summary(settings.tz, ai)
         await message.answer(text)
     except Exception:
         logger.error("/hisobot xatosi", exc_info=True)
@@ -142,13 +146,13 @@ async def cmd_status(message: Message, settings: Settings) -> None:
 
 
 @router.message(Command("haftalik"))
-async def cmd_weekly(message: Message, settings: Settings) -> None:
+async def cmd_weekly(message: Message, settings: Settings, ai: AiAssistant) -> None:
     """Haftalik reytingni darhol tuzib beradi."""
     if not _is_admin_msg(message, settings):
         await message.answer(texts.NOT_ADMIN)
         return
     try:
-        text = await reporter.build_weekly_analysis(settings.tz)
+        text = await reporter.build_weekly_analysis(settings.tz, ai)
         await message.answer(text)
     except Exception:
         logger.error("/haftalik xatosi", exc_info=True)
@@ -156,13 +160,13 @@ async def cmd_weekly(message: Message, settings: Settings) -> None:
 
 
 @router.message(Command("test_xulosa"))
-async def cmd_test_summary(message: Message, settings: Settings) -> None:
+async def cmd_test_summary(message: Message, settings: Settings, ai: AiAssistant) -> None:
     """Debug: kunlik xulosani darhol tuzib ko'rsatadi."""
     if not _is_admin_msg(message, settings):
         await message.answer(texts.NOT_ADMIN)
         return
     try:
-        text = await reporter.build_daily_summary(settings.tz)
+        text = await reporter.build_daily_summary(settings.tz, ai)
         await message.answer("🧪 (test)\n\n" + text)
     except Exception:
         logger.error("/test_xulosa xatosi", exc_info=True)
@@ -485,3 +489,56 @@ async def on_vaqt_value(
     label = texts.VAQT_FIELD_REQUEST if field == "request_time" else texts.VAQT_FIELD_MORNING
     name = (group.get("name") if group else None) or f"Guruh {gid}"
     await message.answer(texts.vaqt_updated(name, label, value))
+
+
+# --------------------------------------------------------------------------
+# Erkin suhbat — admin oddiy matn yozsa, javobni AI beradi
+#
+# Bu handler faylning eng oxirida turishi shart: aiogram handlerlarni
+# ro'yxatga olish tartibida tekshiradi, shuning uchun barcha komandalar va
+# FSM holatlari birinchi ishlaydi, bu yerga faqat qolgani tushadi.
+# --------------------------------------------------------------------------
+
+async def _admin_context(settings: Settings) -> str:
+    """AI adminга javob yozishda tayanadigan joriy holat."""
+    date = reporter.today_str(settings.tz)
+    groups = await db.get_all_groups()
+    reports = await db.get_reports_for_date(date)
+
+    lines = []
+    for g in groups:
+        gid = int(g["id"])
+        report = reports.get(gid)
+        state = "hisobot yo'q"
+        if report:
+            summary = (report.get("ai_summary") or "").strip()
+            state = f"hisobot bor — {summary}" if summary else "hisobot bor"
+        status = "faol" if g.get("is_active") else "pauzada"
+        lines.append(
+            f"- [{gid}] {g.get('name') or 'nomsiz'} ({status}, "
+            f"ertalab {g.get('morning_time')}, so'rov {g.get('request_time')}): {state}"
+        )
+
+    groups_text = "\n".join(lines) if lines else "(hozircha guruh yo'q)"
+    return (
+        f"Bugungi sana: {reporter.pretty_date(settings.tz)}\n"
+        f"Guruhlar va bugungi holat:\n{groups_text}\n\n"
+        f"Mavjud admin komandalari:\n{texts.ADMIN_START}"
+    )
+
+
+@router.message(F.chat.type == ChatType.PRIVATE, F.text)
+async def on_admin_text(message: Message, settings: Settings, ai: AiAssistant) -> None:
+    """Komanda bo'lmagan xabarga AI javob beradi (guruhlar holatini bilgan holda)."""
+    if not _is_admin_msg(message, settings):
+        await message.answer(texts.NOT_ADMIN)
+        return
+    try:
+        answer = await ai.answer(
+            message.text or "",
+            context=await _admin_context(settings),
+        )
+        await message.answer(answer or texts.AI_UNAVAILABLE)
+    except Exception:
+        logger.error("Admin suhbat xatosi", exc_info=True)
+        await message.answer(texts.AI_UNAVAILABLE)

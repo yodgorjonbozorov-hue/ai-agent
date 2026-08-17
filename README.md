@@ -12,7 +12,7 @@ va adminga xulosa beradigan Telegram bot.
 - [aiogram 3.x](https://docs.aiogram.dev/) — asinxron Telegram bot
 - [APScheduler](https://apscheduler.readthedocs.io/) — kunlik jadval
 - SQLite + `aiosqlite` — ma'lumotlar bazasi
-- Anthropic Claude API — AI tekshiruv (`claude-sonnet-4-6`)
+- Anthropic Claude API — botning matnlarini AI yozadi (standart `claude-opus-5`)
 - Vaqt mintaqasi: `Asia/Tashkent` (`zoneinfo`)
 
 ## Loyiha strukturasi
@@ -22,12 +22,12 @@ va adminga xulosa beradigan Telegram bot.
 ├── bot.py                 # kirish nuqtasi
 ├── config.py              # .env o'qish, log sozlash
 ├── database.py            # baza sxemasi va CRUD
-├── texts.py               # o'zbekcha matn shablonlari
+├── texts.py               # zaxira matn shablonlari (AI ishlamaganda)
 ├── handlers/
 │   ├── admin.py           # admin komandalari (shaxsiy chat)
 │   └── groups.py          # guruh xabarlari va my_chat_member
 ├── services/
-│   ├── ai_checker.py      # Claude API orqali hisobotni baholash
+│   ├── ai.py              # Claude API — javob matnlarini yozadi va hisobotni baholaydi
 │   ├── scheduler.py       # kunlik jadval joblari
 │   └── reporter.py        # kunlik/haftalik xulosa tuzish
 ├── requirements.txt
@@ -51,17 +51,30 @@ va adminga xulosa beradigan Telegram bot.
 - **Admin komandalari:** `/start`, `/guruhlar`, `/hisobot`, `/test_xulosa`.
 
 **2-bosqich (AI tekshiruv)**
-- **`ai_checker.py`:** har bir hisobot `claude-sonnet-4-6` modeliga yuboriladi;
-  model faqat JSON qaytaradi (`toliq`, `yetishmagan`, `muammo_bormi`,
-  `muammo_qisqacha`, `baho` 1–5, `qisqa_xulosa`).
-- **Qayta so'rash:** to'liq bo'lmasa guruhga "…{yetishmagan} qismi yo'q —
-  to'ldirib yuborasizmi?" deyiladi, status `incomplete`.
-- **Qabul:** to'liq bo'lsa "✅ Hisobot qabul qilindi", status `accepted`.
+- **`ai.py`:** har bir hisobot Claude modeliga yuboriladi; model JSON
+  qaytaradi (`toliq`, `yetishmagan`, `muammo_bormi`, `muammo_qisqacha`,
+  `baho` 1–5, `qisqa_xulosa`) **va guruhga yuboriladigan javob matni** (`javob`).
 - **Muammo signali:** `muammo_bormi: true` bo'lsa adminга darhol alohida xabar.
 - **Xulosa boyitildi:** 22:00 xulosaga AI qisqa xulosasi va e'tibor talab
   qiladigan bandlar qo'shildi.
 - **Barqarorlik:** AI kritik yo'l EMAS — timeout, rate limit yoki JSON parse
   xatosida hisobot `pending` holatida saqlanadi va bot ishlashda davom etadi.
+
+**5-bosqich (javoblarni bot emas, AI yozadi)**
+- **Hisobotga javob:** endi "✅ Hisobot qabul qilindi" kabi bir xil shablon
+  emas. AI hisobotni o'qib, aynan yozilgan ishga ishora qilib javob yozadi;
+  bo'lim yetishmasa, nimani to'ldirish kerakligini o'zi aytadi.
+- **Jadval xabarlari:** ertalabki xabar, 18:00 hisobot so'rovi va ikkala
+  eslatma matnini ham AI yozadi (vazifalar va guruh nomini bilgan holda).
+- **Guruhda savol-javob:** botga *reply* qilinsa yoki `@bot_username` bilan
+  murojaat qilinsa, AI javob beradi — bugungi vazifalar, hisobot holati va
+  vaqtlarni biladi. Boshqa suhbat xabarlariga bot aralashmaydi.
+- **Admin bilan suhbat:** shaxsiy chatда komanda emas, oddiy savol yozsangiz
+  ham AI javob beradi (guruhlar ro'yxati va bugungi holatni ko'rib turadi).
+- **Xulosalarga sharh:** kunlik va haftalik xulosadagi raqamlar bazadan aniq
+  olinadi, AI esa oxiriga qisqa sharh/tavsiya qo'shadi (🧠 belgisi bilan).
+- **Zaxira:** AI ishlamasa (kalit yo'q, timeout, rate limit) `texts.py`
+  dagi eski shablonlar ishlatiladi — bot jim qolmaydi.
 
 **3-bosqich (eslatma, admin komandalari, haftalik tahlil)**
 - **18:30 — 1-eslatma:** faqat hali hisobot yubormagan guruhlarga, muloyim.
@@ -100,7 +113,7 @@ pip install -r requirements.txt
 # 2. Sozlamalar
 cp .env.example .env
 #   .env ni to'ldiring: BOT_TOKEN, ADMIN_ID, ANTHROPIC_API_KEY
-#   (ANTHROPIC_API_KEY bo'sh bo'lsa AI tekshiruv o'chadi, bot baribir ishlaydi)
+#   (ANTHROPIC_API_KEY bo'sh bo'lsa AI o'chadi va bot zaxira shablonlar bilan ishlaydi)
 
 # 3. Ishga tushirish
 python bot.py
@@ -116,7 +129,8 @@ Bot ishga tushgach:
 | O'zgaruvchi | Izoh |
 |---|---|
 | `BOT_TOKEN` | BotFather'dan olingan token |
-| `ANTHROPIC_API_KEY` | Claude API kaliti (bo'sh bo'lsa AI o'chadi) |
+| `ANTHROPIC_API_KEY` | Claude API kaliti (bo'sh bo'lsa AI o'chadi, bot shablonlar bilan ishlaydi) |
+| `AI_MODEL` | Claude modeli, standart `claude-opus-5` (arzonroq variant: `claude-sonnet-5`) |
 | `ADMIN_ID` | Admin Telegram ID (butun son) |
 | `DB_PATH` | Baza fayli, standart `data/bot.db` |
 | `TIMEZONE` | Vaqt mintaqasi, standart `Asia/Tashkent` |

@@ -22,7 +22,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import database as db
 from config import load_settings, setup_logging
 from handlers import admin, groups
-from services.ai_checker import AiChecker
+from services.ai import AiAssistant
 from services.scheduler import BotScheduler
 
 logger = logging.getLogger(__name__)
@@ -42,14 +42,14 @@ async def main() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Scheduler va AI tekshiruvchi
-    scheduler = BotScheduler(bot=bot, settings=settings)
-    ai_checker = AiChecker(api_key=settings.anthropic_api_key)
+    # AI (matnlarni shu yozadi) va scheduler
+    ai = AiAssistant(api_key=settings.anthropic_api_key, model=settings.ai_model)
+    scheduler = BotScheduler(bot=bot, settings=settings, ai=ai)
 
     # Handlerlarga umumiy obyektlarni uzatamiz (workflow_data orqali)
     dp["settings"] = settings
     dp["scheduler"] = scheduler
-    dp["ai_checker"] = ai_checker
+    dp["ai"] = ai
 
     # Routerlarni ulaymiz (admin — shaxsiy chat, groups — guruhlar)
     dp.include_router(admin.router)
